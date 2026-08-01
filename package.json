@@ -1,0 +1,74 @@
+{
+  "name": "playwright-soak-test",
+  "version": "0.1.0",
+  "description": "Soak test your single page web-app (SPA) for memory leaks with Playwright.",
+  "keywords": [
+    "playwright",
+    "memory-leak",
+    "soak-test",
+    "spa",
+    "performance",
+    "web-performance",
+    "testing",
+    "e2e",
+    "detached-dom"
+  ],
+  "license": "MIT",
+  "author": "Den Odell",
+  "homepage": "https://github.com/denodell/playwright-soak-test#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/denodell/playwright-soak-test.git"
+  },
+  "bugs": {
+    "url": "https://github.com/denodell/playwright-soak-test/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./reporter": {
+      "types": "./dist/reporter.d.ts",
+      "import": "./dist/reporter.js",
+      "require": "./dist/reporter.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@playwright/test": ">=1.45.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "build:examples": "npm run build:examples:leak && npm run build:examples:fixed",
+    "build:examples:leak": "vite build --config examples/vite.config.ts --mode leak",
+    "build:examples:fixed": "vite build --config examples/vite.config.ts --mode fixed",
+    "examples:serve": "node examples/server.mjs",
+    "test": "npm run build && npm run build:examples && playwright test",
+    "test:unit": "playwright test --project=unit",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56",
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0"
+  }
+}
