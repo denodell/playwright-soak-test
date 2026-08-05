@@ -173,7 +173,7 @@ Find it: DevTools → Memory → take a heap snapshot, then filter the class lis
 200 passes x 18s of virtual time = 1h of app time.
 ```
 
-The graphs are the readings taken across the run, scaled to each row's own range. Small variations are shows as flat lines.
+The graphs are the readings taken across the run, scaled to each row's own range. Small variations are shown as flat lines.
 
 Growth that stopped is reported as `OVER THRESHOLD` rather than `LEAK DETECTED`. A single jump is labeled `all at once, at pass 10`, a climb that levels off early is labeled `climbed early, then levelled off`, and the message also suggests the number to raise the threshold to.
 
@@ -331,7 +331,7 @@ Every release is written up in [CHANGELOG.md](CHANGELOG.md).
 
 PRs welcome.
 
-Bugs, questions and results from your own app are all welcome in [issues](https://github.com/denodell/playwright-soak-test/issues). Please provide as much data as you can, preferably a working minimal reproducable repo for any problems.
+Bugs, questions and results from your own app are all welcome in [issues](https://github.com/denodell/playwright-soak-test/issues). Please provide as much data as you can, preferably a working minimal reproducible repo for any problems.
 
 ## License
 
