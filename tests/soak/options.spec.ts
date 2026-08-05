@@ -27,7 +27,7 @@ test.describe('waitForResponse with the clock off', () => {
     soakOptions: { clock: false, passes: 6, warmup: 2, waitForResponseTimeout: 150 },
   });
 
-  test('every pass waits, and every timeout is counted', async ({ page, soak }) => {
+  test('each pass waits for the response and counts the timeout', async ({ page, soak }) => {
     await page.goto('/fixed/');
     await page.waitForFunction(() => window.__drawer !== undefined);
 
@@ -46,22 +46,33 @@ test.describe('progress on a long run', () => {
     await page.goto('/fixed/');
     await page.waitForFunction(() => window.__drawer !== undefined);
 
-    const lines: string[] = [];
+    // Captured per run, so the second one can be checked for silence on its own.
+    // A pass that finishes inside a millisecond reports nothing even at
+    // `progressEveryMs: 1`, so the count of lines is not fixed.
+    const reporting: string[] = [];
+    const silent: string[] = [];
+    let sink = reporting;
     const original = console.log;
-    console.log = (...args: unknown[]) => void lines.push(args.join(' '));
+    console.log = (...args: unknown[]) => void sink.push(args.join(' '));
     try {
       await soak.measure(() => openAndClose(page));
+      sink = silent;
       await soak.measure(() => openAndClose(page), { progressEveryMs: 0 });
     } finally {
       console.log = original;
     }
 
-    const reported = lines.filter((l) => l.includes('[playwright-soak-test]') && l.includes('passes,'));
+    const progress = (out: string[]): string[] =>
+      out.filter((l) => l.includes('[playwright-soak-test]') && l.includes('passes,'));
+
+    const reported = progress(reporting);
     expect(reported.length).toBeGreaterThan(0);
-    expect(reported[0]).toContain('warming up');
-    expect(reported.at(-1)).toContain('12/12 passes');
-    expect(reported.at(-1)).toContain('nodes +0');
-    expect(reported.filter((l) => l.includes(': 1/12 passes')).length).toBe(1);
-    expect(reported.filter((l) => l.includes(': 12/12 passes')).length).toBe(1);
+    // Which passes report depends on how long each one takes, so both the number
+    // of lines and the pass the last one lands on are free to vary.
+    for (const line of reported) {
+      expect(line).toMatch(/: \d+\/12 passes, \d+s, /);
+    }
+    expect(reported.at(-1)).toMatch(/nodes [+-]\d+, listeners [+-]\d+$/);
+    expect(progress(silent)).toHaveLength(0);
   });
 });

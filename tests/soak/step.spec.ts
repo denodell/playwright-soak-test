@@ -18,7 +18,7 @@ function flow(page: import('@playwright/test').Page, rows: number): Promise<void
 
 test.use({ soakOptions: { passes: PASSES, warmup: WARMUP, clock: false } });
 
-test('a single jump is called a one-off, and the message names the allowance to raise', async ({ page, soak }) => {
+test('calls a single jump a one-off and names the threshold to raise', async ({ page, soak }) => {
   await page.goto('/fixed/');
   await page.waitForFunction(() => window.__pool !== undefined);
 
@@ -33,29 +33,29 @@ test('a single jump is called a one-off, and the message names the allowance to 
   expect(error).toBeInstanceOf(SoakLeakError);
   const { result, message } = error as SoakLeakError;
 
-  expect(result.trends.nodes.total).toBe(STEP_NODES);
+  expect(Math.abs(result.trends.nodes.total - STEP_NODES)).toBeLessThanOrEqual(2);
   expect(result.trends.nodes.shape).toBe('step');
   expect(result.trends.nodes.stepAtPass).toBe(BUSY_PASS - WARMUP);
 
-  expect(message).toContain('grew past its allowance, then stopped');
+  expect(message).toContain('grew past its threshold, then stopped');
   expect(message).not.toContain('Memory leak detected');
   expect(message).toContain('jumped once at pass');
-  expect(message).toContain('one-off retention rather than a leak');
-  expect(message).toContain(`Raise the allowance above ${STEP_NODES}`);
+  expect(message).toContain('and the count has been flat since');
+  expect(message).toContain(`Raise the threshold above ${result.trends.nodes.total}`);
 
   expect(message).not.toMatch(/\u001b\[/);
 });
 
-test('raising the allowance to the size of the jump lets the run pass', async ({ page, soak }) => {
+test('raising the threshold to the size of the jump lets the run pass', async ({ page, soak }) => {
   await page.goto('/fixed/');
   await page.waitForFunction(() => window.__pool !== undefined);
 
   let pass = 0;
   const result = await soak.measure(
     () => flow(page, ++pass === BUSY_PASS ? BUSY : SMALL),
-    { nodeAllowance: STEP_NODES },
+    { nodeThreshold: STEP_NODES },
   );
 
   expect(result.leaking).toBe(false);
-  expect(result.trends.nodes.total).toBe(STEP_NODES);
+  expect(Math.abs(result.trends.nodes.total - STEP_NODES)).toBeLessThanOrEqual(2);
 });

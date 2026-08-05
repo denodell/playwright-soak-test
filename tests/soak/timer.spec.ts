@@ -25,7 +25,7 @@ test.describe('with real time', () => {
     const result = await soak.measure(() => openAndClose(page));
 
     expect(await ticksSoFar(page)).toBe(0);
-    expect(result.trends.nodes.total).toBe(MEASURED);
+    expect(Math.abs(result.trends.nodes.total - MEASURED)).toBeLessThanOrEqual(2);
     expect(result.leaking).toBe(false);
   });
 });

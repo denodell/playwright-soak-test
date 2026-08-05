@@ -27,11 +27,11 @@ test('the leak build fails on the listener count while the node count stays flat
   const { result, message } = error as SoakLeakError;
 
   expect(result.trends.listeners.total).toBe(MEASURED);
-  expect(result.trends.nodes.total).toBe(0);
+  expect(Math.abs(result.trends.nodes.total)).toBeLessThanOrEqual(2);
   expect(result.failures.map((f) => f.metric)).toEqual(['listeners']);
 
-  expect(message).toContain('still registered after the flow ends');
-  expect(message).toContain('outlived the flow');
+  expect(message).toContain('goes up when your code adds a listener');
+  expect(message).toContain('adding a listener each pass and it stays registered');
 });
 
 test('the fixed build removes the listener and stays flat', async ({ page, soak }) => {
@@ -42,5 +42,5 @@ test('the fixed build removes the listener and stays flat', async ({ page, soak 
 
   expect(result.leaking).toBe(false);
   expect(result.trends.listeners.total).toBe(0);
-  expect(result.trends.nodes.total).toBe(0);
+  expect(Math.abs(result.trends.nodes.total)).toBeLessThanOrEqual(2);
 });

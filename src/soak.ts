@@ -37,9 +37,9 @@ export const soakLaunchOptions: { args: string[] } = {
 const DEFAULTS = {
   passes: 200,
   warmup: 5,
-  nodeAllowance: 100,
-  listenerAllowance: 0,
-  heapAllowancePercent: null,
+  nodeThreshold: 100,
+  listenerThreshold: 0,
+  heapThresholdPercent: null,
   gcPasses: 2,
   tracePasses: 25,
   waitForResponseTimeout: 5_000,
@@ -79,9 +79,9 @@ export function resolveSoakOptions(
   return {
     passes,
     warmup,
-    nodeAllowance: options.nodeAllowance ?? DEFAULTS.nodeAllowance,
-    listenerAllowance: options.listenerAllowance ?? DEFAULTS.listenerAllowance,
-    heapAllowancePercent: options.heapAllowancePercent ?? DEFAULTS.heapAllowancePercent,
+    nodeThreshold: options.nodeThreshold ?? DEFAULTS.nodeThreshold,
+    listenerThreshold: options.listenerThreshold ?? DEFAULTS.listenerThreshold,
+    heapThresholdPercent: options.heapThresholdPercent ?? DEFAULTS.heapThresholdPercent,
     gcPasses: options.gcPasses ?? DEFAULTS.gcPasses,
     progressEveryMs: options.progressEveryMs ?? DEFAULTS.progressEveryMs,
     tracePasses: options.tracePasses ?? DEFAULTS.tracePasses,
@@ -204,29 +204,29 @@ async function executeSoak(
   };
 
   const failures: SoakFailure[] = [];
-  if (trends.listeners.total > opts.listenerAllowance) {
+  if (trends.listeners.total > opts.listenerThreshold) {
     failures.push({
       metric: 'listeners',
       growth: trends.listeners.total,
-      allowance: opts.listenerAllowance,
+      threshold: opts.listenerThreshold,
       trend: trends.listeners,
     });
   }
-  if (trends.nodes.total > opts.nodeAllowance) {
+  if (trends.nodes.total > opts.nodeThreshold) {
     failures.push({
       metric: 'nodes',
       growth: trends.nodes.total,
-      allowance: opts.nodeAllowance,
+      threshold: opts.nodeThreshold,
       trend: trends.nodes,
     });
   }
-  if (opts.heapAllowancePercent !== null) {
+  if (opts.heapThresholdPercent !== null) {
     const pct = percentGrowth(baseline.heap, after.heap);
-    if (pct > opts.heapAllowancePercent) {
+    if (pct > opts.heapThresholdPercent) {
       failures.push({
         metric: 'heap',
         growth: pct,
-        allowance: opts.heapAllowancePercent,
+        threshold: opts.heapThresholdPercent,
         trend: trends.heap,
       });
     }
@@ -242,10 +242,10 @@ async function executeSoak(
     trends,
     failures,
     leaking: failures.length > 0,
-    allowances: {
-      nodes: opts.nodeAllowance,
-      listeners: opts.listenerAllowance,
-      heap: opts.heapAllowancePercent,
+    thresholds: {
+      nodes: opts.nodeThreshold,
+      listeners: opts.listenerThreshold,
+      heap: opts.heapThresholdPercent,
     },
     clock: {
       enabled: Boolean(opts.clock),

@@ -42,11 +42,11 @@ export interface SoakOptions {
   /** Passes before the baseline reading, so first-open code and data land first. Default 5. */
   warmup?: number;
   /** DOM node growth allowed across the run, fixed rather than a percentage. Default 100. */
-  nodeAllowance?: number;
+  nodeThreshold?: number;
   /** Listener growth allowed across the run. Default 0. */
-  listenerAllowance?: number;
+  listenerThreshold?: number;
   /** Heap growth allowed, as a percentage of the baseline. Default `null`, which reports only. */
-  heapAllowancePercent?: number | null;
+  heapThresholdPercent?: number | null;
   /**
    * Milliseconds between progress lines. A run of a few seconds finishes before
    * the first one is due, so short runs stay quiet. Default 30,000; 0 for silence.
@@ -83,7 +83,7 @@ export type ResolvedSoakOptions = Required<Omit<SoakOptions, 'clock' | 'waitForR
 export interface SoakFailure {
   metric: 'nodes' | 'listeners' | 'heap';
   growth: number;
-  allowance: number;
+  threshold: number;
   trend: SoakTrend;
 }
 
@@ -97,7 +97,7 @@ export interface SoakResult {
   trends: Record<'nodes' | 'listeners' | 'heap', SoakTrend>;
   failures: SoakFailure[];
   leaking: boolean;
-  allowances: { nodes: number; listeners: number; heap: number | null };
+  thresholds: { nodes: number; listeners: number; heap: number | null };
   clock: { enabled: boolean; advanceMs: number; virtualElapsedMs: number | null };
   /** Whether `--js-flags=--expose-gc` was present, which is what makes collection reliable. */
   exposeGc: boolean;
@@ -113,7 +113,7 @@ export interface SoakRunOptions extends SoakOptions {
 }
 
 export interface Soak {
-  /** Repeat `action`, and throw `SoakLeakError` when a count grows past its allowance. */
+  /** Repeat `action`, and throw `SoakLeakError` when a count grows past its threshold. */
   run(action: SoakAction, options?: SoakOptions): Promise<SoakResult>;
   /** The same run, returning the result whether or not a count grew too far. */
   measure(action: SoakAction, options?: SoakOptions): Promise<SoakResult>;

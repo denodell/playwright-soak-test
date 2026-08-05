@@ -103,17 +103,19 @@ export default class SoakReporter implements Reporter {
       this.rows.push({ title: test.title, result: soak, passed: !soak.leaking });
 
       const metrics: Array<'listeners' | 'nodes' | 'heap'> = ['listeners', 'nodes', 'heap'];
-      const lines: BoxLine[] = describeMetrics(soak).map((text, i) => ({
-        text,
-        color: rowColor(soak, metrics[i]!),
-      }));
+      // Blank line between rows, so three sparklines stacked up read as three
+      // separate counts rather than one block of shading.
+      const lines: BoxLine[] = describeMetrics(soak).flatMap((text, i) => {
+        const row = { text, color: rowColor(soak, metrics[i]!) };
+        return i === 0 ? [row] : [{ text: '' }, row];
+      });
       if (soak.leaking) {
         lines.push({ text: '' }, { text: `${soak.passes} passes, warmup ${soak.warmup}` });
       }
 
       const verdict = soak.leaking
         ? isOneOff(soak)
-          ? 'OVER ALLOWANCE'
+          ? 'OVER THRESHOLD'
           : 'LEAK DETECTED'
         : 'PASS';
       console.log(`\n${box(soak.label, verdict, lines)}`);

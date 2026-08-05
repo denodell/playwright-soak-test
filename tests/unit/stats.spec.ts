@@ -145,7 +145,7 @@ test.describe('the heap floor', () => {
       },
       failures: [],
       leaking: false,
-      allowances: { nodes: 100, listeners: 0, heap: null },
+      thresholds: { nodes: 100, listeners: 0, heap: null },
       clock: { enabled: false, advanceMs: 0, virtualElapsedMs: null },
       exposeGc: true,
       responseTimeouts: 0,
@@ -170,17 +170,17 @@ test.describe('resolveSoakOptions', () => {
     const o = resolveSoakOptions();
     expect(o.passes).toBe(200);
     expect(o.warmup).toBe(5);
-    expect(o.nodeAllowance).toBe(100);
-    expect(o.listenerAllowance).toBe(0);
-    expect(o.heapAllowancePercent).toBeNull();
+    expect(o.nodeThreshold).toBe(100);
+    expect(o.listenerThreshold).toBe(0);
+    expect(o.heapThresholdPercent).toBeNull();
     expect(o.gcPasses).toBe(2);
     expect(o.clock).toEqual({ advanceMs: 18_000 });
   });
 
   test('lets a run override the config defaults', () => {
-    const o = resolveSoakOptions(mergeSoakOptions({ passes: 100 }, { passes: 20, nodeAllowance: 5 }));
+    const o = resolveSoakOptions(mergeSoakOptions({ passes: 100 }, { passes: 20, nodeThreshold: 5 }));
     expect(o.passes).toBe(20);
-    expect(o.nodeAllowance).toBe(5);
+    expect(o.nodeThreshold).toBe(5);
   });
 
   test('keeps the clock off when either level turns it off', () => {
