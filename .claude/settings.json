@@ -16,7 +16,11 @@
       "Bash(npm pack *)",
       "Bash(python3 -c \"import yaml,sys; d=yaml.safe_load\\(open\\('.github/workflows/ci.yml'\\)\\); print\\('  ok, job:', list\\(d['jobs']\\)[0], '| node matrix:', d['jobs']['test']['strategy']['matrix']['node']\\); print\\('  steps:', len\\(d['jobs']['test']['steps']\\)\\)\")",
       "Bash(node -p \"const s=require\\('./package.json'\\).scripts; ['typecheck','test','build','build:examples'].map\\(k=>'  '+\\(s[k]?'ok   ':'MISS '\\)+k\\).join\\('\\\\n'\\)\")",
-      "Bash(npx --yes js-yaml .github/workflows/ci.yml)"
+      "Bash(npx --yes js-yaml .github/workflows/ci.yml)",
+      "Bash(node -p \"const p=require\\('./package.json'\\); ['description','author','homepage','repository','bugs','keywords'].map\\(k=>'  '+\\(p[k]?'ok   ':'MISS '\\)+k\\).join\\('\\\\n'\\)\")",
+      "Bash(npm test *)",
+      "Bash(timeout 240 npx --yes @arethetypeswrong/cli@latest --pack .)",
+      "Bash(npx --yes @arethetypeswrong/cli@latest --pack .)"
     ]
   }
 }
