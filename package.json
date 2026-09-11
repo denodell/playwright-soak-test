@@ -79,6 +79,7 @@
     "examples:serve": "node examples/server.mjs",
     "test": "npm run build && npm run build:examples && playwright test",
     "test:unit": "playwright test --project=unit",
+    "postinstall": "playwright install --with-deps chromium",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
