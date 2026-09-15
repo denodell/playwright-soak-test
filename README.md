@@ -186,21 +186,19 @@ The reporter prints a box per test and a table at the end of the run. On GitHub 
 The counts tell you a leak exists. They can't tell you what it is, because `Nodes` and `JSEventListeners` are totals with no names attached. So a failing run also takes a heap snapshot at the baseline pass and another at the end, diffs them by node name, and walks back from one leaked object to whatever still references it. That comes out under the usual box:
 
 ```
-  A listener on window was never removed. Its callback `onResize` captured `root`, which
-  is the <section class="report-drawer"> your flow built. 195 of them are off the page and
-  still in memory, one per pass.
+  A listener on window was never removed. Its callback `onResize` still references the
+  <section class="report-drawer"> your flow built.
 
     window → EventListener → onResize() → <section class="report-drawer">
 ```
 
-The sentence is the answer, and the chain is the evidence for it, read left to right as "keeps alive". `onResize` is the function to go and look at, `root` is the variable it captured, and `window` is what keeps the whole thing reachable.
+The sentence is the answer, and the chain is the evidence for it, read left to right as "keeps alive". `onResize` is the function to go and look at, and `window` is what keeps the whole thing reachable. The counts stay in the box above, so the sentence does not repeat them, and a captured variable is only named when it says which of something, as `history` does below.
 
 A leak with a collection in the middle of it reads the same way:
 
 ```
   `openDrawer` captured an array as `history`. The array keeps growing, and it still
-  references the <section class="feed-panel"> your flow built. 195 of them are off the page
-  and still in memory, one per pass.
+  references the <section class="feed-panel"> your flow built.
 
     window.__drawer → openDrawer() → Array → <section class="feed-panel">
 ```
@@ -208,9 +206,8 @@ A leak with a collection in the middle of it reads the same way:
 A timer that was never cleared reads as a timer, rather than as the machinery the virtual clock keeps it in:
 
 ```
-  A timer was never cleared. Its callback `tick` captured `state`, which is the <section
-  class="live-tile"> your flow built. 195 of them are off the page and still in memory, one
-  per pass.
+  A timer was never cleared. Its callback `tick` still references the <section
+  class="live-tile"> your flow built.
 
     a pending timer → tick() → <section class="live-tile">
 ```

@@ -136,11 +136,11 @@ export function interpret(result: SoakResult): string[] {
     );
   } else if (nodesLeak) {
     lines.push(
-      'DOM nodes are climbing while the listener count stays flat. Elements are coming off the' +
-      ' page but your JavaScript still points at them, so they stay in memory.' +
+      'DOM nodes are climbing while the listener count stays flat.' +
       (guessing
-        ? ' An array that keeps growing is a common cause, or a variable a long-lived function' +
-        ' closed over.'
+        ? ' Elements are coming off the page but your JavaScript still points at them, so they' +
+        ' stay in memory. An array that keeps growing is a common cause, or a variable a' +
+        ' long-lived function closed over.'
         : ''),
     );
   } else if (nodes.shape === 'noisy' || listeners.shape === 'noisy') {
@@ -287,7 +287,7 @@ function sentence(text: string, width = 88): string[] {
 const COLLECTIONS: Record<string, string> = { Array: 'an array', Map: 'a map', Set: 'a set' };
 
 /** The sentence a reader acts on. The chain underneath it is the evidence. */
-function describeLeak(leak: Leak, result: SoakResult): string[] {
+function describeLeak(leak: Leak): string[] {
   const { anchor, fn, variable, container, global } = readChain(leak.path);
   const what = `the ${leak.what} your flow built`;
   const collection = container ? COLLECTIONS[container] : undefined;
@@ -304,6 +304,8 @@ function describeLeak(leak: Leak, result: SoakResult): string[] {
 
   let cause: string;
   if (fn && collection) {
+    // The variable earns its place here, because it says which of the several
+    // arrays in that function is the one that keeps growing.
     const named = variable ? ` as \`${variable}\`` : '';
     cause = `\`${fn}\` captured ${collection}${named}. The ${container!.toLowerCase()} keeps`
       + ` growing, and it still references ${what}.`;
@@ -311,18 +313,19 @@ function describeLeak(leak: Leak, result: SoakResult): string[] {
     cause = `${collection[0]!.toUpperCase()}${collection.slice(1)} that keeps growing still`
       + ` references ${what}.`;
   } else if (fn) {
-    const captured = variable ? ` \`${variable}\`, which is` : '';
-    cause = `Its callback \`${fn}\` captured${captured} ${what}.`;
+    // No variable name here. When the captured variable is the leaked object, its
+    // name is the local one for something the sentence already describes better,
+    // and a name like `root` or `state` reads as a term the reader has to look up.
+    cause = `${missing ? `Its callback \`${fn}\`` : `\`${fn}\``} still references ${what}.`;
   } else if (global) {
     cause = `Something on \`${global}\` still references ${what}.`;
   } else {
     cause = `Something still references ${what}.`;
   }
 
-  const perPass = leak.delta === result.passes - result.warmup ? ', one per pass' : '';
-  const count = `${formatCount(leak.delta)} of them are off the page and still in memory${perPass}.`;
-
-  return [...sentence(`${missing}${cause} ${count}`), '', `  ${chainLine(leak.path)}`];
+  // No count and no rate. The box above has both, and `interpret` says the rate
+  // again in words, so a third telling is the one that reads as padding.
+  return [...sentence(`${missing}${cause}`), '', `  ${chainLine(leak.path)}`];
 }
 
 /**
@@ -345,7 +348,7 @@ export function describeDiagnosis(result: SoakResult): string[] {
 
   for (const leak of leaks.slice(0, SHOWN)) {
     if (lines.length) lines.push('');
-    lines.push(...describeLeak(leak, result));
+    lines.push(...describeLeak(leak));
   }
 
   const rest = leaks.length - SHOWN;

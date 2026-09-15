@@ -65,7 +65,11 @@ test('names the drawer as one leak, and the listener holding it', async ({ page,
 
   // Four detached classes, one bug: the report says it once, in a sentence.
   expect(message).toContain('A listener on window was never removed');
-  expect(message).toContain('`onResize` captured `root`');
+  expect(message).toContain('`onResize` still references');
+  // The box and the trend line already give the rate, so the sentence does not.
+  expect(message).not.toContain('one per pass');
+  // `root` is the local name for something the sentence describes better.
+  expect(message).not.toContain('captured `root`');
   expect(message).toContain('window \u2192 EventListener \u2192 onResize()');
   expect(message).not.toContain('Detached <div>');
   // And it stops guessing at a cause once it has found one.
@@ -134,7 +138,7 @@ test('a timer leak is not blamed on the clock this library installed', async ({ 
   ]);
 
   expect(message).toContain('A timer was never cleared');
-  expect(message).toContain('`tick` captured `state`');
+  expect(message).toContain('`tick` still references');
   // None of Playwright's clock reaches the report, or the JSON behind it.
   for (const text of [message, JSON.stringify(result.diagnosis)]) {
     expect(text).not.toContain('ClockController');
