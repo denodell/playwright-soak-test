@@ -292,8 +292,12 @@ function describeLeak(leak: Leak): string[] {
   // Blink names a detached wrapper after its markup, so "element" says what the
   // angle brackets are. An older snapshot names it `Detached HTMLDivElement`
   // instead, which already reads as a class and does not want the extra word.
-  const noun = leak.what.startsWith('<') ? ' element' : '';
-  const what = `the ${leak.what}${noun} from your flow`;
+  //
+  // Nothing about whose element it is. The whole report is about the flow that
+  // was passed to `soak.run`, the markup says which element far better than any
+  // phrase would, and all the snapshots show is that the count went up, not what
+  // created it.
+  const what = `the ${leak.what}${leak.what.startsWith('<') ? ' element' : ''}`;
   const collection = container ? COLLECTIONS[container] : undefined;
 
   // Only a timer and a listener need a sentence of their own, because the missing
