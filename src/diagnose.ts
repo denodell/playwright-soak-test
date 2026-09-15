@@ -289,7 +289,7 @@ const COLLECTIONS: Record<string, string> = { Array: 'an array', Map: 'a map', S
 /** The sentence a reader acts on. The chain underneath it is the evidence. */
 function describeLeak(leak: Leak): string[] {
   const { anchor, fn, variable, container, global } = readChain(leak.path);
-  const what = `the ${leak.what} your flow built`;
+  const what = `the ${leak.what} from your flow`;
   const collection = container ? COLLECTIONS[container] : undefined;
 
   // Only a timer and a listener need a sentence of their own, because the missing
