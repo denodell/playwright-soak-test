@@ -289,7 +289,11 @@ const COLLECTIONS: Record<string, string> = { Array: 'an array', Map: 'a map', S
 /** The sentence a reader acts on. The chain underneath it is the evidence. */
 function describeLeak(leak: Leak): string[] {
   const { anchor, fn, variable, container, global } = readChain(leak.path);
-  const what = `the ${leak.what} from your flow`;
+  // Blink names a detached wrapper after its markup, so "element" says what the
+  // angle brackets are. An older snapshot names it `Detached HTMLDivElement`
+  // instead, which already reads as a class and does not want the extra word.
+  const noun = leak.what.startsWith('<') ? ' element' : '';
+  const what = `the ${leak.what}${noun} from your flow`;
   const collection = container ? COLLECTIONS[container] : undefined;
 
   // Only a timer and a listener need a sentence of their own, because the missing

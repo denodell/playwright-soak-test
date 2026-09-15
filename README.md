@@ -187,7 +187,7 @@ The counts tell you a leak exists. They can't tell you what it is, because `Node
 
 ```
   A listener on window was never removed. Its callback `onResize` still references the
-  <section class="report-drawer"> from your flow.
+  <section class="report-drawer"> element from your flow.
 
     window → EventListener → onResize() → <section class="report-drawer">
 ```
@@ -198,7 +198,7 @@ A leak with a collection in the middle of it reads the same way:
 
 ```
   `openDrawer` captured an array as `history`. The array keeps growing, and it still
-  references the <section class="feed-panel"> from your flow.
+  references the <section class="feed-panel"> element from your flow.
 
     window.__drawer → openDrawer() → Array → <section class="feed-panel">
 ```
@@ -207,7 +207,7 @@ A timer that was never cleared reads as a timer, rather than as the machinery th
 
 ```
   A timer was never cleared. Its callback `tick` still references the <section
-  class="live-tile"> from your flow.
+  class="live-tile"> element from your flow.
 
     a pending timer → tick() → <section class="live-tile">
 ```
