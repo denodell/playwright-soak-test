@@ -311,15 +311,16 @@ function describeLeak(leak: Leak): string[] {
         : '';
 
   let cause: string;
-  if (fn && collection) {
-    // The variable earns its place here, because it says which of the several
-    // arrays in that function is the one that keeps growing.
-    const named = variable ? ` as \`${variable}\`` : '';
-    cause = `\`${fn}\` captured ${collection}${named}. The ${container!.toLowerCase()} keeps`
-      + ` growing, and it still references ${what}.`;
-  } else if (collection) {
-    cause = `${collection[0]!.toUpperCase()}${collection.slice(1)} that keeps growing still`
-      + ` references ${what}.`;
+  if (collection) {
+    // The variable is the answer here rather than the function, because it names
+    // the array to go and find. The function stays out of it: a bundler flattens
+    // every module into one scope, so the function V8 attributes that scope to is
+    // often declared in a different file from the variable, and naming it here
+    // would send a reader to the wrong one. It is still in the chain below, where
+    // it reads as a hop rather than as a claim about where the array lives.
+    const named = variable ? ` called \`${variable}\`` : '';
+    cause = `${collection[0]!.toUpperCase()}${collection.slice(1)}${named} keeps growing, and`
+      + ` it still references ${what}.`;
   } else if (fn) {
     // No variable name here. When the captured variable is the leaked object, its
     // name is the local one for something the sentence already describes better,

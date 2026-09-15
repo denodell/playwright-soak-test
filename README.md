@@ -192,13 +192,13 @@ The counts tell you a leak exists. They can't tell you what it is, because `Node
     window → EventListener → onResize() → <section class="report-drawer">
 ```
 
-The sentence is the answer, and the chain is the evidence for it, read left to right as "keeps alive". `onResize` is the function to go and look at, and `window` is what keeps the whole thing reachable. The counts stay in the box above, so the sentence does not repeat them, and a captured variable is only named when it says which of something, as `history` does below.
+The sentence is the answer, and the chain is the evidence for it, read left to right as "keeps alive". `onResize` is the function to go and look at, and `window` is what keeps the whole thing reachable. The counts stay in the box above, so the sentence does not repeat them.
 
-A leak with a collection in the middle of it reads the same way:
+A leak with a collection in the middle of it names the collection instead, because that is the thing to go and find. The function that closes over it stays in the chain rather than the sentence: a bundler flattens every module into one scope, so the function the snapshot attributes that scope to is often declared in a different file from the variable.
 
 ```
-  `openDrawer` captured an array as `history`. The array keeps growing, and it still
-  references the <section class="feed-panel"> element.
+  An array called `history` keeps growing, and it still references the
+  <section class="feed-panel"> element.
 
     window.__drawer → openDrawer() → Array → <section class="feed-panel">
 ```
