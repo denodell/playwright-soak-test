@@ -17,6 +17,7 @@ export type {
   SoakMetrics,
   SoakOptions,
   SoakResult,
+  SoakRetainerHop,
   SoakRunOptions,
   SoakSample,
   SoakTrend,

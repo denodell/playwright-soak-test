@@ -103,6 +103,18 @@ export interface SoakFailure {
   trend: SoakTrend;
 }
 
+/**
+ * One holder in a retainer chain, and the slot the next holder down sits in.
+ * Structured rather than pre-formatted, because the reporter reads the result
+ * back out of a JSON attachment and has to be able to regroup and relabel it.
+ */
+export interface SoakRetainerHop {
+  /** What is holding on: `window`, `EventListener`, `closure onResize`, `<section class="x">`. */
+  node: string;
+  /** How this hop reaches the next one. Absent on the last hop, and on unnamed links. */
+  edge?: { type: 'property' | 'element' | 'context'; name: string };
+}
+
 /** One class of detached DOM node, and what is keeping an example of it alive. */
 export interface SoakDetachedClass {
   /** The snapshot's own name for it, such as `Detached HTMLDivElement`. */
@@ -111,10 +123,10 @@ export interface SoakDetachedClass {
   after: number;
   delta: number;
   /**
-   * Holders of one example, leaked object first and root last, with internal
+   * Holders of one example, root first and the leaked object last, with internal
    * hops collapsed. Empty when no path was walked or none reached the root.
    */
-  retainerPath: string[];
+  retainerPath: SoakRetainerHop[];
 }
 
 /** A JS constructor or closure whose node count went up across the run. */

@@ -186,33 +186,48 @@ The reporter prints a box per test and a table at the end of the run. On GitHub 
 The counts tell you a leak exists. They can't tell you what it is, because `Nodes` and `JSEventListeners` are totals with no names attached. So a failing run also takes a heap snapshot at the baseline pass and another at the end, diffs them by node name, and walks back from one leaked object to whatever is still holding it. That comes out under the usual box:
 
 ```
-  Retained by
+  A listener on window was never removed. Its callback `onResize` captured `root`, which
+  is the <section class="report-drawer"> your flow built. 195 of them are off the page and
+  still in memory, one per pass.
 
-    Detached <div>  +2,340  (39 → 2,379)
-      <div class="report-row"> ← <section class="report-drawer">
-        ← closure onResize (context: root) ← EventListener ← Window
-
-    Detached <span>  +2,340  (36 → 2,376)
-      <span> ← <div class="report-row"> ← <section class="report-drawer">
-        ← closure onResize (context: root) ← EventListener ← Window
-
-    Detached <section>  +195  (3 → 198)
-      <section class="report-drawer"> ← closure onResize (context: root) ← EventListener ← Window
-
-    1 more detached class grew.
-
-  Also growing: closure onResize +195
+    window → EventListener → onResize() → <section class="report-drawer">
 ```
 
-Read a chain right to left: `Window` is holding an `EventListener`, the listener calls a closure named `onResize`, and that closure captured a variable called `root` which is the detached `<section>`. That is a resize listener that was never removed, and `onResize` is the line of code to go and look at.
+The sentence is the answer; the chain is the evidence for it, read left to right as "holds". `onResize` is the function to go and look at, `root` is the variable it captured, and `window` is what is keeping the whole thing reachable.
 
-The chain runs all the way to the root rather than stopping at the closure. The root end says *who* is holding it — `Window`, a module-level `Map`, a framework cache — and the closure in the middle says *which line of code* did it. Internal hops such as contexts and backing stores are collapsed, and a collapsed context hands its variable name to the closure above it, so both ends fit on one line and you don't have to give up either.
+A leak with a collection in the middle of it reads the same way:
+
+```
+  An array that never gets emptied is holding them. `openDrawer` captured it as `history`,
+  and it still holds the <section class="feed-panel"> your flow built. 195 of them are off
+  the page and still in memory, one per pass.
+
+    window.__drawer → openDrawer() → Array → <section class="feed-panel">
+```
+
+A timer that was never cleared reads as a timer, rather than as the machinery the virtual clock keeps it in:
+
+```
+  A timer was never cleared. Its callback `tick` captured `state`, which is the <section
+  class="live-tile"> your flow built. 195 of them are off the page and still in memory, one
+  per pass.
+
+    a pending timer → tick() → <section class="live-tile">
+```
+
+### One bug, reported once
+
+A leaking drawer shows up in the snapshot as four detached classes: the `<section>`, the `<div>` rows inside it, their `<span>`s, and the `<h2>`. That is one bug counted four ways, and reporting it four times buries the answer under three copies of the same chain.
+
+So the chains are grouped. Read from the root, they share a prefix, and that prefix ends on the thing that actually leaked; everything past it is that thing's contents. The report names the container and leaves the contents out, because nobody fixes `<span> +2,340` — they fix `onResize`. The counts for every class are still on the result if you want them.
+
+Detached classes are grouped by tag rather than by the full markup, so `<div class="row-1">` and `<div class="row-2">` count as one `Detached <div>`. The markup is still there on the chain, where it points at the element itself.
 
 ### What gets reported
 
 | Field | What it holds |
 | --- | --- |
-| `detached` | Every class of detached DOM node whose count went up, largest first. `retainerPath` is filled in for the top three, since walking one is the expensive part. |
+| `detached` | Every class of detached DOM node whose count went up, largest first. `retainerPath` holds the chain of holders, root first and the leaked object last, as `{ node, edge }` hops. |
 | `growth` | The JS names that grew most: constructors, and closures named for their function. This is what catches a leak that never touches the DOM. |
 | `snapshots` | Where the two snapshots were written, when they were kept. |
 | `note` | Why the diagnosis is thin, when something cut it short. |
@@ -220,10 +235,9 @@ The chain runs all the way to the root rather than stopping at the closure. The 
 A leak that stays out of the DOM has nothing detached to report, so it comes back under `growth` instead:
 
 ```
-  Growing in the heap: Array +850, AuditEntry +850
+  Nothing came off the page, so this is data the app is keeping rather than DOM it forgot.
+  Most of the growth is in Array +850, AuditEntry +850.
 ```
-
-Detached classes are grouped by tag rather than by the full markup, so `<div class="row-1">` and `<div class="row-2">` count as one `Detached <div>`. The markup is still there on the first hop of the chain, where it points at the element itself.
 
 ### Snapshots
 
@@ -360,11 +374,10 @@ Every call returns a `SoakResult`, and `SoakLeakError` contains the same object 
         after: 2379,
         delta: 2340,
         retainerPath: [
-          '<div class="report-row">',
-          '<section class="report-drawer">',
-          'closure onResize (context: root)',
-          'EventListener',
-          'Window',
+          { node: 'Window' },
+          { node: 'EventListener' },
+          { node: 'closure onResize', edge: { type: 'context', name: 'root' } },
+          { node: '<section class="report-drawer">' },
         ],
       },
       ...
@@ -387,7 +400,7 @@ Every call returns a `SoakResult`, and `SoakLeakError` contains the same object 
 
 `diagnosis` is what the heap snapshots found, and is only there when there was a reason to look: a run that failed, or one asked for with `diagnose: 'always'`. See [Diagnosis](#diagnosis).
 
-The types are exported too: `Soak`, `SoakAction`, `SoakOptions`, `SoakRunOptions`, `SoakClockOptions`, `SoakResult`, `SoakSample`, `SoakTrend`, `SoakMetrics`, `SoakFailure`, `SoakDiagnosis`, `SoakDiagnoseMode`, `SoakDetachedClass`, `SoakGrowth`, `SoakFixtures` and `SoakTestOptions`.
+The types are exported too: `Soak`, `SoakAction`, `SoakOptions`, `SoakRunOptions`, `SoakClockOptions`, `SoakResult`, `SoakSample`, `SoakTrend`, `SoakMetrics`, `SoakFailure`, `SoakDiagnosis`, `SoakDiagnoseMode`, `SoakDetachedClass`, `SoakRetainerHop`, `SoakGrowth`, `SoakFixtures` and `SoakTestOptions`.
 
 ## Long runs
 

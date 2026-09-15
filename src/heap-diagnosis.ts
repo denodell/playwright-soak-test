@@ -21,10 +21,21 @@ import {
   ROOT_NODE,
   type RetainerStep,
 } from './heap-snapshot.js';
-import type { SoakDetachedClass, SoakDiagnosis, SoakGrowth } from './types.js';
+import type {
+  SoakDetachedClass,
+  SoakDiagnosis,
+  SoakGrowth,
+  SoakRetainerHop,
+} from './types.js';
 
-/** Detached classes we walk a retainer path for. The walk is the expensive part. */
-const RETAINER_PATHS = 3;
+/**
+ * Detached classes we walk a retainer path for. One leak usually shows up as
+ * several classes -- a container and its contents -- and they are only groupable
+ * back into one finding if each has a path, so this is well above the three the
+ * report shows. The reverse index is built once and shared, so each extra walk
+ * is a breadth-first pass rather than another parse.
+ */
+const RETAINER_PATHS = 12;
 
 /** Growing JS names carried in the result. */
 const GROWTH_NAMES = 5;
@@ -32,8 +43,18 @@ const GROWTH_NAMES = 5;
 /** One more of something is a coincidence, not a trend. */
 const GROWTH_FLOOR = 2;
 
-/** Hops in a printed retainer chain before the middle is elided. */
+/** Hops in a retainer chain before the middle is elided. */
 const MAX_HOPS = 8;
+
+/**
+ * `installSoakClock` injects Playwright's clock, which stores pending timers in
+ * its own object graph. A timer that was never cleared is therefore reached
+ * through our plumbing rather than the app's, and reporting `ClockController` to
+ * someone debugging their own code is worse than useless. The run collapses to
+ * what it means: a pending timer. Kept in step with `page.clock` by name.
+ */
+const CLOCK_ANCHOR = '__pwClock';
+const PENDING_TIMER = 'a pending timer';
 
 const BASELINE_FILE = 'baseline';
 const AFTER_FILE = 'after';
@@ -123,35 +144,18 @@ function describeNode(snapshot: HeapSnapshot, node: number): string {
   return name.replace(/ \/ \w+:\/\/\S*$/, '') || `(${type})`;
 }
 
-function describeEdge(
-  snapshot: HeapSnapshot,
-  holder: number,
-  edge: RetainerStep['edge'],
-): string {
-  if (!edge) return '';
-  switch (edge.type) {
-    case 'context':
-      return ` (context: ${edge.name})`;
-    case 'property':
-    case 'shortcut':
-      return ` (property: ${edge.name})`;
-    case 'element':
-      // An index into a JS array points at the entry that is holding on. The
-      // same edge between two DOM nodes is Blink's own tree order, and saying
-      // "element 7" about a sibling helps nobody.
-      return snapshot.nodeType(holder) === 'native' ? '' : ` (element ${edge.name})`;
-    default:
-      return '';
-  }
-}
-
 /**
- * The chain as something a reader can act on, leaked object first. Bookkeeping
- * hops collapse, and the edge name from the lowest collapsed hop moves up to
- * the node that survives, so a closure keeps the variable it captured.
+ * The chain as something a reader can act on, root first and the leaked object
+ * last. Bookkeeping hops collapse, and the edge name from the lowest collapsed
+ * hop moves up to the node that survives, so a closure keeps the variable it
+ * captured.
  */
-export function renderRetainerPath(snapshot: HeapSnapshot, steps: RetainerStep[]): string[] {
-  const chain: string[] = [];
+export function buildRetainerPath(
+  snapshot: HeapSnapshot,
+  steps: RetainerStep[],
+): SoakRetainerHop[] {
+  // `steps` runs leaf first, and each step's edge points at the step before it.
+  const kept: Array<{ name: string; edge: SoakRetainerHop['edge'] }> = [];
   let carried: RetainerStep['edge'] = null;
   let previous = '';
 
@@ -164,19 +168,79 @@ export function renderRetainerPath(snapshot: HeapSnapshot, steps: RetainerStep[]
 
     const name = describeNode(snapshot, step.node);
     // A DOM wrapper and the JS object behind it are two nodes with one name, so
-    // the chain would otherwise read `... ← Window ← Window`.
+    // the chain would otherwise read `... Window, Window`.
     if (name === previous) {
       carried = null;
       continue;
     }
 
-    chain.push(`${name}${describeEdge(snapshot, step.node, carried ?? step.edge)}`);
+    kept.push({ name, edge: namedEdge(snapshot, step.node, carried ?? step.edge) });
     previous = name;
     carried = null;
   }
 
-  if (chain.length <= MAX_HOPS) return chain;
-  return [...chain.slice(0, MAX_HOPS - 2), '…', chain[chain.length - 1]!];
+  // Reversing leaves each hop holding the edge to the hop after it, which is the
+  // direction the report reads in.
+  const hops: SoakRetainerHop[] = kept
+    .reverse()
+    .map(({ name, edge }) => (edge ? { node: name, edge } : { node: name }));
+
+  return elide(collapseClock(dropAnonymous(hops)));
+}
+
+/**
+ * An object literal has no name of its own, so a hop through one reads as
+ * `Object` and says nothing. Skipping it keeps each surviving hop's own edge,
+ * which is a real property of that hop: `window .__drawer-> Object .open-> fn`
+ * becomes `window.__drawer -> fn`, and the anchor stays the one worth searching.
+ */
+function dropAnonymous(hops: SoakRetainerHop[]): SoakRetainerHop[] {
+  return hops.filter((hop, i) => hop.node !== 'Object' || i === hops.length - 1);
+}
+
+/**
+ * Everything from the hop that reaches the injected clock up to the app's own
+ * callback is our plumbing, so it becomes one hop. The app's callback is the
+ * first closure or element after it, which is where the app's code starts again.
+ */
+function collapseClock(hops: SoakRetainerHop[]): SoakRetainerHop[] {
+  const start = hops.findIndex((h) => h.edge?.name === CLOCK_ANCHOR);
+  if (start < 0) return hops;
+
+  let end = start;
+  while (end + 1 < hops.length && !isAppCode(hops[end + 1]!.node)) end++;
+
+  const last = hops[end]!;
+  const timer: SoakRetainerHop = last.edge ? { node: PENDING_TIMER, edge: last.edge } : { node: PENDING_TIMER };
+  return [...hops.slice(0, start), timer, ...hops.slice(end + 1)];
+}
+
+function isAppCode(node: string): boolean {
+  return node.startsWith('closure ') || node.startsWith('<');
+}
+
+function elide(hops: SoakRetainerHop[]): SoakRetainerHop[] {
+  if (hops.length <= MAX_HOPS) return hops;
+  return [...hops.slice(0, MAX_HOPS - 2), { node: '\u2026' }, hops[hops.length - 1]!];
+}
+
+/** The edge, when it names something a reader could search for. */
+function namedEdge(
+  snapshot: HeapSnapshot,
+  holder: number,
+  edge: RetainerStep['edge'],
+): SoakRetainerHop['edge'] {
+  if (!edge) return undefined;
+  if (edge.type === 'element') {
+    // An index into a JS array points at the entry that is holding on. The same
+    // edge between two DOM nodes is Blink's own tree order, and saying
+    // "element 7" about a sibling helps nobody.
+    if (snapshot.nodeType(holder) === 'native') return undefined;
+    return { type: 'element', name: edge.name };
+  }
+  if (edge.type === 'property' || edge.type === 'shortcut') return { type: 'property', name: edge.name };
+  if (edge.type === 'context') return { type: 'context', name: edge.name };
+  return undefined;
 }
 
 /**
@@ -215,7 +279,7 @@ export function pathForClass(
   after: HeapSnapshot,
   baselineIds: Map<string, Set<number>>,
   className: string,
-): string[] {
+): SoakRetainerHop[] {
   const node = representativeNode(after, baselineIds.get(className), className);
   if (node === null) return [];
 
@@ -225,7 +289,7 @@ export function pathForClass(
     after.retainerPath(node, { skipRetainer: (holder) => isDetachedGrouping(after, holder) }) ??
     after.retainerPath(node);
 
-  return steps ? renderRetainerPath(after, steps) : [];
+  return steps ? buildRetainerPath(after, steps) : [];
 }
 
 // -------------------------------------------------------------------- diffing

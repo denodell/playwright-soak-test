@@ -20,3 +20,17 @@ graph is this:
 The weak edge is the point of `WeakHolder`: it is the shortest way back to the
 root from the detached div, and a retainer walk has to refuse it, because a weak
 reference is not what is keeping the div alive.
+
+`pending-timer.heapsnapshot` is a timer left pending on the injected clock:
+
+```
+(GC roots)
+└── Window / https://example.test
+    └── .__pwClock → Object → ClockController → Map
+                                                └── .func → closure tick
+                                                            └── state → <div class="tile">   [detached]
+```
+
+Everything between the window and `tick` is Playwright's clock, which
+`installSoakClock` put there. The report collapses that run to `a pending timer`,
+because blaming a leak on this library's own plumbing helps nobody.

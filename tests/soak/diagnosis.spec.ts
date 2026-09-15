@@ -19,10 +19,7 @@ function openAndCloseDrawer(page: Page): Promise<void> {
   });
 }
 
-test('names the detached class the drawer leaves behind, and the listener holding it', async ({
-  page,
-  soak,
-}) => {
+test('names the drawer as one leak, and the listener holding it', async ({ page, soak }) => {
   await page.goto('/leak/');
   await page.waitForFunction(() => window.__drawer !== undefined);
 
@@ -37,8 +34,8 @@ test('names the detached class the drawer leaves behind, and the listener holdin
 
   expect(diagnosis).toBeDefined();
 
-  // The drawer is a <section> holding rows of <div><span>, so all three go
-  // detached together and each one should be named.
+  // The drawer is a <section> of rows, so the section, its divs, its spans and
+  // its heading all go detached together and each one is counted.
   const classes = diagnosis!.detached.map((d) => d.className);
   expect(classes).toContain('Detached <section>');
   expect(classes).toContain('Detached <div>');
@@ -46,22 +43,33 @@ test('names the detached class the drawer leaves behind, and the listener holdin
 
   const section = diagnosis!.detached.find((d) => d.className === 'Detached <section>')!;
   expect(section.delta).toBe(PASSES - result.warmup);
-  expect(section.after).toBeGreaterThan(section.baseline);
 
-  // `onResize` is the listener the leaking build never removes, so it is the
-  // line of code the report has to lead back to.
-  const paths = diagnosis!.detached.filter((d) => d.retainerPath.length);
-  expect(paths.length).toBeGreaterThan(0);
-  expect(paths.some((d) => d.retainerPath.some((hop) => hop.includes('closure onResize')))).toBe(
-    true,
-  );
-  // Every chain that was walked ends at whatever is rooting it.
-  for (const entry of paths) expect(entry.retainerPath.at(-1)).toBe('Window');
+  // Every chain runs root first and ends on the thing that leaked.
+  const walked = diagnosis!.detached.filter((d) => d.retainerPath.length);
+  expect(walked.length).toBeGreaterThan(0);
+  for (const entry of walked) expect(entry.retainerPath[0]!.node).toBe('Window');
 
-  expect(diagnosis!.growth.map((g) => g.name)).toContain('closure onResize');
+  // `onResize` is the listener the leaking build never removes, and `root` is the
+  // variable it captured, so those two are the answer the report has to give.
+  const chain = section.retainerPath;
+  expect(chain.map((hop) => hop.node)).toEqual([
+    'Window',
+    'EventListener',
+    'closure onResize',
+    '<section class="report-drawer">',
+  ]);
+  expect(chain.find((hop) => hop.node === 'closure onResize')!.edge).toEqual({
+    type: 'context',
+    name: 'root',
+  });
 
-  expect(message).toContain('Retained by');
-  expect(message).toContain('closure onResize');
+  // Four detached classes, one bug: the report says it once, in a sentence.
+  expect(message).toContain('A listener on window was never removed');
+  expect(message).toContain('`onResize` captured `root`');
+  expect(message).toContain('window \u2192 EventListener \u2192 onResize()');
+  expect(message).not.toContain('Detached <div>');
+  // And it stops guessing at a cause once it has found one.
+  expect(message).not.toContain('Most often a listener stays registered');
 });
 
 test('the array on window shows up as heap growth, with nothing detached', async ({
@@ -94,8 +102,44 @@ test('the array on window shows up as heap growth, with nothing detached', async
   expect(entries).toBeDefined();
   expect(entries!.delta).toBeGreaterThanOrEqual((PASSES - result.warmup) * 50);
 
-  expect(message).toContain('Growing in the heap');
+  expect(message).toContain('Nothing came off the page');
   expect(message).toContain('AuditEntry');
+});
+
+test('a timer leak is not blamed on the clock this library installed', async ({ page, soak }) => {
+  await page.goto('/leak/');
+  await page.waitForFunction(() => window.__ticker !== undefined);
+
+  const error = await soak
+    .run(async () => {
+      await page.evaluate(() => {
+        window.__ticker.open();
+        window.__ticker.close();
+      });
+      await page.clock.runFor(30_000);
+    })
+    .then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+  expect(error).toBeInstanceOf(SoakLeakError);
+  const { result, message } = error as SoakLeakError;
+
+  const tile = result.diagnosis!.detached.find((d) => d.className === 'Detached <section>')!;
+  expect(tile.retainerPath.map((hop) => hop.node)).toEqual([
+    'a pending timer',
+    'closure tick',
+    '<section class=\"live-tile\">',
+  ]);
+
+  expect(message).toContain('A timer was never cleared');
+  expect(message).toContain('`tick` captured `state`');
+  // None of Playwright's clock reaches the report, or the JSON behind it.
+  for (const text of [message, JSON.stringify(result.diagnosis)]) {
+    expect(text).not.toContain('ClockController');
+    expect(text).not.toContain('__pwClock');
+  }
 });
 
 test('the fixed build keeps its diagnosis to itself and leaves no snapshots behind', async ({

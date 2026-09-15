@@ -9,16 +9,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `diagnosis` on `SoakResult`: what a failing run leaked, and what is holding it
 - Heap snapshots taken at the baseline pass and after the final reading, diffed by node name
 - `detached`, every class of detached DOM node whose count went up, largest first
-- `retainerPath` for the top three detached classes: the chain of holders from the leaked object back to the root, with internal hops collapsed and a captured variable's name kept against the closure that captured it
+- `retainerPath`, the chain of holders from the root down to the leaked object, as `{ node, edge }` hops, with internal hops collapsed and a captured variable's name kept against the closure that captured it
+- Detached classes that share a chain reported as one leak rather than one finding per class, named in a sentence with the chain underneath as evidence
+- Retainer chains through the virtual clock reported as `a pending timer`, so a leak is never blamed on the plumbing this library installed
+- `SoakRetainerHop`
 - `growth`, the JS constructors and named closures that grew most, so a leak that never touches the DOM is still named
 - `diagnose` option: `'on-failure'` (default), `'always'` or `'off'`
 - `diagnoseTimeoutMs` option, default 60,000. Running past it abandons the diagnosis with a note rather than failing the test
 - Both snapshots attached to the test result as `soak-heap-baseline` and `soak-heap-after`, ready to drag into DevTools → Memory
-- `Retained by` section printed under the reporter's box, and in the `SoakLeakError` message
-- Types `SoakDiagnosis`, `SoakDiagnoseMode`, `SoakDetachedClass` and `SoakGrowth`
+- The diagnosis printed under the reporter's box, and in the `SoakLeakError` message
+- Types `SoakDiagnosis`, `SoakDiagnoseMode`, `SoakDetachedClass`, `SoakRetainerHop` and `SoakGrowth`
 
 ### Changed
 
+- The report stops guessing at a cause once the snapshots have named one, so a failing run no longer says the same thing twice
 - A run with diagnosis on takes two heap snapshots, which adds to how long it takes. Passing runs print and return exactly what they did before, and `diagnose: 'off'` restores the old cost.
 
 ## [0.1.0] - 2026-08-05

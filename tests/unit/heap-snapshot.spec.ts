@@ -7,9 +7,9 @@ import {
   type HeapSnapshot,
 } from '../../src/heap-snapshot.js';
 import {
+  buildRetainerPath,
   diffSnapshots,
   growthNameOf,
-  renderRetainerPath,
 } from '../../src/heap-diagnosis.js';
 
 // See tests/fixtures/README.md for the graph these two describe.
@@ -20,6 +20,7 @@ function fixture(name: string): HeapSnapshot {
 
 const after = fixture('retained-drawer');
 const baseline = fixture('retained-drawer-baseline');
+const clock = fixture('pending-timer');
 
 function nodeNamed(snapshot: HeapSnapshot, name: string): number {
   for (let node = 0; node < snapshot.nodeCount; node++) {
@@ -119,32 +120,41 @@ test.describe('retainerPath', () => {
   });
 });
 
-test.describe('renderRetainerPath', () => {
-  test('collapses the context and hands its variable name to the closure', () => {
+test.describe('buildRetainerPath', () => {
+  test('runs root first and hands the context variable to the closure', () => {
     const card = nodeNamed(after, '<div class="card">');
-    expect(renderRetainerPath(after, after.retainerPath(card)!)).toEqual([
-      '<div class="card">',
-      'closure handleClick (context: el)',
-      'EventListener',
-      'Window',
+    expect(buildRetainerPath(after, after.retainerPath(card)!)).toEqual([
+      { node: 'Window' },
+      { node: 'EventListener' },
+      { node: 'closure handleClick', edge: { type: 'context', name: 'el' } },
+      { node: '<div class="card">' },
     ]);
   });
 
   test('keeps an element index on a JS array and drops it between DOM nodes', () => {
     const entry = nodeNamed(after, 'AuditEntry');
-    expect(renderRetainerPath(after, after.retainerPath(entry)!)).toEqual([
-      'AuditEntry',
-      'Array (element 3)',
-      'Window (property: __sink)',
+    expect(buildRetainerPath(after, after.retainerPath(entry)!)).toEqual([
+      { node: 'Window', edge: { type: 'property', name: '__sink' } },
+      { node: 'Array', edge: { type: 'element', name: '3' } },
+      { node: 'AuditEntry' },
     ]);
 
     const label = nodeNamed(after, '<span>');
-    expect(renderRetainerPath(after, after.retainerPath(label)!)).toEqual([
-      '<span>',
-      '<div class="card">',
-      'closure handleClick (context: el)',
-      'EventListener',
+    expect(buildRetainerPath(after, after.retainerPath(label)!).map((h) => h.node)).toEqual([
       'Window',
+      'EventListener',
+      'closure handleClick',
+      '<div class="card">',
+      '<span>',
+    ]);
+  });
+
+  test("collapses the injected clock, so a leak is not blamed on Playwright's plumbing", () => {
+    const tile = nodeNamed(clock, '<div class="tile">');
+    expect(buildRetainerPath(clock, clock.retainerPath(tile)!)).toEqual([
+      { node: 'a pending timer', edge: { type: 'property', name: 'func' } },
+      { node: 'closure tick', edge: { type: 'context', name: 'state' } },
+      { node: '<div class="tile">' },
     ]);
   });
 });
@@ -206,10 +216,10 @@ test.describe('diffSnapshots', () => {
 
   test('each detached class carries the chain that is holding it', () => {
     expect(diagnosis.detached[0]!.retainerPath).toEqual([
-      '<div class="card">',
-      'closure handleClick (context: el)',
-      'EventListener',
-      'Window',
+      { node: 'Window' },
+      { node: 'EventListener' },
+      { node: 'closure handleClick', edge: { type: 'context', name: 'el' } },
+      { node: '<div class="card">' },
     ]);
   });
 

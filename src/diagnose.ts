@@ -7,32 +7,12 @@ import {
   percentGrowth,
   sparkline,
 } from './stats.js';
-import type { SoakResult, SoakTrend } from './types.js';
-
-/** Detached classes and retainer paths shown in the report. */
-const SHOWN = 3;
-
-/** Where a retainer chain folds onto a continuation line. */
-const CHAIN_WIDTH = 92;
-
-/** A chain across as many lines as it needs, broken between hops. */
-function wrapChain(path: string[], indent: string): string[] {
-  const lines: string[] = [];
-  let current = '';
-
-  for (const [index, hop] of path.entries()) {
-    const piece = index === 0 ? hop : `← ${hop}`;
-    if (!current) current = piece;
-    else if (current.length + piece.length + 1 <= CHAIN_WIDTH) current += ` ${piece}`;
-    else {
-      lines.push(current);
-      current = piece;
-    }
-  }
-  if (current) lines.push(current);
-
-  return lines.map((line, index) => `${indent}${index === 0 ? '' : '  '}${line}`);
-}
+import type {
+  SoakDetachedClass,
+  SoakResult,
+  SoakRetainerHop,
+  SoakTrend,
+} from './types.js';
 
 export function formatDuration(ms: number): string {
   const totalMinutes = Math.round(ms / 60_000);
@@ -105,6 +85,9 @@ export function describeMetrics(result: SoakResult): string[] {
 // The counts say a leak exists. This says which kind.
 export function interpret(result: SoakResult): string[] {
   const { trends } = result;
+  // The snapshots either name the cause or they don't. When they do, the guesses
+  // below are not just redundant, they read as hedging next to a certain answer.
+  const guessing = !hasNamedCause(result);
   const nodes = trends.nodes;
   const listeners = trends.listeners;
   const lines: string[] = [];
@@ -138,9 +121,13 @@ export function interpret(result: SoakResult): string[] {
     lines.push(
       `Every pass leaks ${formatPerPass(nodes.perPass).replace('+', '')} nodes and` +
       ` ${formatPerPass(listeners.perPass).replace('+', '')} listeners, starting from the first one.`,
-      'Most often a listener stays registered after the flow ends, and its callback still points',
-      'at the elements it was created for, so they stay in memory too.',
     );
+    if (guessing) {
+      lines.push(
+        'Most often a listener stays registered after the flow ends, and its callback still points',
+        'at the elements it was created for, so they stay in memory too.',
+      );
+    }
   } else if (listenersLeak) {
     lines.push(
       'The listener count goes up when your code adds a listener and down when it removes one.' +
@@ -150,8 +137,11 @@ export function interpret(result: SoakResult): string[] {
   } else if (nodesLeak) {
     lines.push(
       'DOM nodes are climbing while the listener count stays flat. Elements are coming off the' +
-      ' page but your JavaScript still points at them, so they stay in memory. An array that' +
-      ' keeps growing is a common cause, or a variable a long-lived function closed over.',
+      ' page but your JavaScript still points at them, so they stay in memory.' +
+      (guessing
+        ? ' An array that keeps growing is a common cause, or a variable a long-lived function' +
+        ' closed over.'
+        : ''),
     );
   } else if (nodes.shape === 'noisy' || listeners.shape === 'noisy') {
     lines.push(
@@ -167,48 +157,195 @@ export function interpret(result: SoakResult): string[] {
   return lines;
 }
 
+/** Leaks described in the report. Past three, a failing run has bigger problems. */
+const SHOWN = 3;
+
 /**
- * What the heap snapshots found: which detached classes grew, and the chain of
- * holders keeping one example of each alive.
+ * One leak, gathered from the detached classes that share a retainer chain.
  *
- * The chain runs all the way to the root rather than stopping at the first
- * closure. The root says who is holding it -- `Window`, a module-level `Map`, a
- * framework cache -- and the closure in the middle says which line of code did
- * it. Internal hops collapse, so both fit on one line and neither has to be
- * given up for the other.
+ * A drawer that leaks shows up as four classes -- the section, its rows, their
+ * spans, its heading -- which is one bug counted four ways. Reading each class's
+ * chain from the root, the common prefix ends on the thing that actually leaked;
+ * everything past it is that thing's contents.
+ */
+interface Leak {
+  /** The leaked object, e.g. `<section class="report-drawer">`. */
+  what: string;
+  /** How many more of them than at the baseline. */
+  delta: number;
+  /** Holders, root first, ending on `what`. */
+  path: SoakRetainerHop[];
+}
+
+function groupLeaks(detached: SoakDetachedClass[]): Leak[] {
+  const walked = detached.filter((d) => d.retainerPath.length);
+  const leaks: Leak[] = [];
+
+  // A class whose chain runs through another class's leaked object is that
+  // object's contents, so it is folded into the same finding.
+  const roots = walked.filter(
+    (candidate) =>
+      !walked.some(
+        (other) =>
+          other !== candidate &&
+          candidate.retainerPath.length > other.retainerPath.length &&
+          candidate.retainerPath[other.retainerPath.length - 1]?.node ===
+          other.retainerPath.at(-1)?.node,
+      ),
+  );
+
+  for (const root of roots) {
+    leaks.push({
+      what: root.retainerPath.at(-1)?.node ?? root.className,
+      delta: root.delta,
+      path: root.retainerPath,
+    });
+  }
+
+  return leaks.sort((a, b) => b.delta - a.delta);
+}
+
+/** Where the chain is anchored, which is what the opening sentence turns on. */
+type Anchor = 'timer' | 'listener' | 'container' | 'global' | 'other';
+
+interface Culprit {
+  anchor: Anchor;
+  /** The function whose scope is holding on, without the `closure` prefix. */
+  fn?: string;
+  /** The variable in that scope. */
+  variable?: string;
+  /** What that variable is, when it is not the leaked object itself. */
+  container?: string;
+  /** The property the whole chain hangs off, when it hangs off a global. */
+  global?: string;
+}
+
+function readChain(path: SoakRetainerHop[]): Culprit {
+  const out: Culprit = { anchor: 'other' };
+
+  const closureAt = path.findIndex((hop) => hop.node.startsWith('closure '));
+  if (closureAt >= 0) {
+    const closure = path[closureAt]!;
+    out.fn = closure.node.slice('closure '.length);
+    if (closure.edge?.type === 'context') out.variable = closure.edge.name;
+
+    // Whatever the captured variable turns out to be. When it is the leaked
+    // object there is nothing in between; when it is a collection, that
+    // collection is the thing that never gets emptied.
+    const next = path[closureAt + 1]?.node;
+    if (next && next !== path.at(-1)?.node) out.container = next;
+  }
+
+  const root = path[0];
+  if (root?.node === 'Window' && root.edge?.type === 'property') {
+    out.global = `window.${root.edge.name}`;
+  }
+
+  if (path.some((hop) => hop.node === PENDING_TIMER)) out.anchor = 'timer';
+  else if (path.some((hop) => hop.node === 'EventListener')) out.anchor = 'listener';
+  else if (out.container) out.anchor = 'container';
+  else if (out.global) out.anchor = 'global';
+
+  return out;
+}
+
+const PENDING_TIMER = 'a pending timer';
+
+/** `closure onResize` reads as code, and `Window` is spelled the way it is typed. */
+function hopLabel(hop: SoakRetainerHop, first: boolean): string {
+  if (hop.node.startsWith('closure ')) return `${hop.node.slice('closure '.length)}()`;
+  // A property hanging off a global is the one edge name worth spelling out: when
+  // a leak is anchored there, that name is what a reader searches for.
+  if (hop.node === 'Window') {
+    return first && hop.edge?.type === 'property' ? `window.${hop.edge.name}` : 'window';
+  }
+  return hop.node;
+}
+
+function chainLine(path: SoakRetainerHop[]): string {
+  return path.map((hop, i) => hopLabel(hop, i === 0)).join(' \u2192 ');
+}
+
+/** Wrapped to the width the hand-written lines in this file already sit at. */
+function sentence(text: string, width = 88): string[] {
+  const lines: string[] = [];
+  let current = '';
+  for (const word of text.split(' ')) {
+    if (!current) current = word;
+    else if (current.length + word.length + 1 <= width) current += ` ${word}`;
+    else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+/** The sentence a reader acts on. The chain underneath it is the evidence. */
+function describeLeak(leak: Leak, result: SoakResult): string[] {
+  const { anchor, fn, variable, container, global } = readChain(leak.path);
+
+  const opening: string = {
+    timer: 'A timer was never cleared.',
+    listener: 'A listener on window was never removed.',
+    container: `${container === 'Array' ? 'An array' : `A ${container}`} that never gets emptied is`
+      + ' holding them.',
+    global: `Something reachable from \`${global}\` is holding them.`,
+    other: 'Something the page still reaches is holding them.',
+  }[anchor];
+
+  const what = `the ${leak.what} your flow built`;
+  const middle = !fn
+    ? `Nothing removed the last reference to ${what}.`
+    : container
+      ? `\`${fn}\` captured it${variable ? ` as \`${variable}\`` : ''}, and it still holds ${what}.`
+      : `Its callback \`${fn}\` captured${variable ? ` \`${variable}\`, which is` : ''} ${what}.`;
+
+  const perPass = leak.delta === result.passes - result.warmup ? ', one per pass' : '';
+  const count = `${formatCount(leak.delta)} of them are off the page and still in memory${perPass}.`;
+
+  return [...sentence(`${opening} ${middle} ${count}`), '', `  ${chainLine(leak.path)}`];
+}
+
+/**
+ * What the heap snapshots found, in the same voice as the rest of the report: the
+ * cause in a sentence, then the chain of holders as the evidence for it.
  *
- * Returns nothing when there is nothing to say, so the caller can skip the
- * whole section rather than print an empty heading.
+ * The chain runs all the way to the root rather than stopping at the closure. The
+ * root end says who is holding it -- a listener, a timer, something on `window` --
+ * and the closure in the middle says which line of code did it.
+ *
+ * Returns nothing when there is nothing to say, so the caller can skip the whole
+ * section rather than print an empty heading.
  */
 export function describeDiagnosis(result: SoakResult): string[] {
   const diagnosis = result.diagnosis;
   if (!diagnosis) return [];
 
+  const leaks = groupLeaks(diagnosis.detached);
   const lines: string[] = [];
-  const top = diagnosis.detached.slice(0, SHOWN);
 
-  if (top.length) {
-    lines.push('Retained by');
-    for (const entry of top) {
-      const counts = `${formatCount(entry.baseline)} → ${formatCount(entry.after)}`;
-      lines.push('', `  ${entry.className}  ${formatSigned(entry.delta)}  (${counts})`);
-      lines.push(
-        ...(entry.retainerPath.length
-          ? wrapChain(entry.retainerPath, '    ')
-          : ['    nothing in the snapshot holds it, so it is already waiting to be collected.']),
-      );
-    }
-
-    const rest = diagnosis.detached.length - top.length;
-    if (rest > 0) {
-      lines.push('', `  ${formatCount(rest)} more detached ${rest === 1 ? 'class' : 'classes'} grew.`);
-    }
+  for (const leak of leaks.slice(0, SHOWN)) {
+    if (lines.length) lines.push('');
+    lines.push(...describeLeak(leak, result));
   }
 
-  if (diagnosis.growth.length) {
+  const rest = leaks.length - SHOWN;
+  if (rest > 0) {
+    lines.push('', `${formatCount(rest)} more ${rest === 1 ? 'leak' : 'leaks'} like this were found.`);
+  }
+
+  // Nothing detached means the leak never reached the page, so the growing JS
+  // names are all there is to go on.
+  if (!leaks.length && diagnosis.growth.length) {
     const list = diagnosis.growth.map((g) => `${g.name} ${formatSigned(g.delta)}`).join(', ');
-    if (lines.length) lines.push('');
-    lines.push(top.length ? `Also growing: ${list}` : `Growing in the heap: ${list}`);
+    lines.push(
+      ...sentence(
+        'Nothing came off the page, so this is data the app is keeping rather than DOM it' +
+        ` forgot. Most of the growth is in ${list}.`,
+      ),
+    );
   }
 
   if (diagnosis.note) {
@@ -217,6 +354,11 @@ export function describeDiagnosis(result: SoakResult): string[] {
   }
 
   return lines;
+}
+
+/** True once the snapshots have named a cause, so the report can stop guessing at one. */
+export function hasNamedCause(result: SoakResult): boolean {
+  return groupLeaks(result.diagnosis?.detached ?? []).length > 0;
 }
 
 function notes(result: SoakResult): string[] {
