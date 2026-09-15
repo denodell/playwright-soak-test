@@ -2,6 +2,25 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-15
+
+### Added
+
+- `diagnosis` on `SoakResult`: what a failing run leaked, and what is holding it
+- Heap snapshots taken at the baseline pass and after the final reading, diffed by node name
+- `detached`, every class of detached DOM node whose count went up, largest first
+- `retainerPath` for the top three detached classes: the chain of holders from the leaked object back to the root, with internal hops collapsed and a captured variable's name kept against the closure that captured it
+- `growth`, the JS constructors and named closures that grew most, so a leak that never touches the DOM is still named
+- `diagnose` option: `'on-failure'` (default), `'always'` or `'off'`
+- `diagnoseTimeoutMs` option, default 60,000. Running past it abandons the diagnosis with a note rather than failing the test
+- Both snapshots attached to the test result as `soak-heap-baseline` and `soak-heap-after`, ready to drag into DevTools → Memory
+- `Retained by` section printed under the reporter's box, and in the `SoakLeakError` message
+- Types `SoakDiagnosis`, `SoakDiagnoseMode`, `SoakDetachedClass` and `SoakGrowth`
+
+### Changed
+
+- A run with diagnosis on takes two heap snapshots, which adds to how long it takes. Passing runs print and return exactly what they did before, and `diagnose: 'off'` restores the old cost.
+
 ## [0.1.0] - 2026-08-05
 
 Initial release. Requires Playwright 1.45 or newer on Node 18 or newer, and runs on Chromium only.
@@ -24,4 +43,5 @@ Initial release. Requires Playwright 1.45 or newer on Node 18 or newer, and runs
 - Options `passes`, `warmup`, `nodeThreshold`, `listenerThreshold`, `heapThresholdPercent`, `clock`, `waitForResponse`, `waitForResponseTimeout`, `gcPasses`, `progressEveryMs`, `tracePasses`, `sampleEvery` and `label`
 - TypeScript types for the public API
 
+[0.2.0]: https://github.com/denodell/playwright-soak-test/releases/tag/v0.2.0
 [0.1.0]: https://github.com/denodell/playwright-soak-test/releases/tag/v0.1.0

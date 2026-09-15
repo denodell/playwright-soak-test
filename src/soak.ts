@@ -7,10 +7,12 @@ import {
   virtualElapsedMs,
 } from './clock.js';
 import { buildFailureMessage } from './diagnose.js';
+import { HeapDiagnostics } from './heap-diagnosis.js';
 import { formatCount, formatElapsed, formatSigned, percentGrowth, trendOf } from './stats.js';
 import type {
   ResolvedSoakOptions,
   SoakAction,
+  SoakDiagnosis,
   SoakFailure,
   SoakMetrics,
   SoakOptions,
@@ -45,6 +47,8 @@ const DEFAULTS = {
   waitForResponseTimeout: 5_000,
   progressEveryMs: 30_000,
   clockAdvanceMs: 18_000,
+  diagnose: 'on-failure',
+  diagnoseTimeoutMs: 60_000,
 } as const;
 
 const warned = new Set<string>();
@@ -93,6 +97,8 @@ export function resolveSoakOptions(
         : { advanceMs: options.clock?.advanceMs ?? DEFAULTS.clockAdvanceMs },
     waitForResponse: options.waitForResponse,
     label: options.label ?? fallbackLabel,
+    diagnose: options.diagnose ?? DEFAULTS.diagnose,
+    diagnoseTimeoutMs: options.diagnoseTimeoutMs ?? DEFAULTS.diagnoseTimeoutMs,
   };
 }
 
@@ -176,6 +182,18 @@ async function executeSoak(
   }
 
   const baseline = await read();
+  // The outcome is not known yet, so the baseline snapshot is taken on every run
+  // that has diagnosis on at all and dropped again at the end if it goes unused.
+  const heap =
+    opts.diagnose === 'off'
+      ? null
+      : await HeapDiagnostics.open(cdp, {
+        label: opts.label,
+        timeoutMs: opts.diagnoseTimeoutMs,
+        testInfo,
+      });
+  await heap?.captureBaseline();
+
   baselineMetrics = baseline;
   latestMetrics = baseline;
   const samples: SoakSample[] = [{ pass: 0, ...baseline }];
@@ -196,6 +214,10 @@ async function executeSoak(
 
   const after = await read();
   samples.push({ pass: measured, ...after });
+
+  // Taking a snapshot forces a collection of its own, so it waits until the last
+  // reading is in rather than moving the number it is meant to explain.
+  await heap?.captureAfter();
 
   const trends = {
     nodes: trendOf(samples, 'nodes', baseline.nodes, after.nodes),
@@ -232,6 +254,13 @@ async function executeSoak(
     }
   }
 
+  let diagnosis: SoakDiagnosis | undefined;
+  if (heap) {
+    const wanted = opts.diagnose === 'always' || failures.length > 0;
+    if (wanted) diagnosis = await heap.build();
+    else await heap.discard();
+  }
+
   const result: SoakResult = {
     label: opts.label,
     passes: opts.passes,
@@ -254,6 +283,7 @@ async function executeSoak(
     },
     exposeGc,
     responseTimeouts,
+    ...(diagnosis ? { diagnosis } : {}),
   };
 
   if (testInfo) {

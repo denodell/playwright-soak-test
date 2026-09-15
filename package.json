@@ -1,6 +1,6 @@
 {
   "name": "playwright-soak-test",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Soak test your single page web-app (SPA) for memory leaks with Playwright.",
   "keywords": [
     "playwright",

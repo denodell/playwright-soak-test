@@ -36,6 +36,12 @@ export interface SoakClockOptions {
   advanceMs?: number;
 }
 
+/**
+ * When a run takes heap snapshots. The baseline one has to be taken before the
+ * outcome is known, so `'on-failure'` still takes it and throws it away again.
+ */
+export type SoakDiagnoseMode = 'on-failure' | 'always' | 'off';
+
 export interface SoakOptions {
   /** Total passes, including the warmup. Default 200. */
   passes?: number;
@@ -72,6 +78,16 @@ export interface SoakOptions {
   waitForResponseTimeout?: number;
   /** Name used in the failure message and the reporter. Defaults to the test title. */
   label?: string;
+  /**
+   * Heap snapshots either side of the run, diffed to name what is leaking and
+   * what is holding it. Default `'on-failure'`.
+   */
+  diagnose?: SoakDiagnoseMode;
+  /**
+   * Budget for the snapshot work, in ms. Default 60,000. Going over abandons the
+   * diagnosis with a note on the result rather than failing the test.
+   */
+  diagnoseTimeoutMs?: number;
 }
 
 export type ResolvedSoakOptions = Required<Omit<SoakOptions, 'clock' | 'waitForResponse' | 'label'>> & {
@@ -85,6 +101,37 @@ export interface SoakFailure {
   growth: number;
   threshold: number;
   trend: SoakTrend;
+}
+
+/** One class of detached DOM node, and what is keeping an example of it alive. */
+export interface SoakDetachedClass {
+  /** The snapshot's own name for it, such as `Detached HTMLDivElement`. */
+  className: string;
+  baseline: number;
+  after: number;
+  delta: number;
+  /**
+   * Holders of one example, leaked object first and root last, with internal
+   * hops collapsed. Empty when no path was walked or none reached the root.
+   */
+  retainerPath: string[];
+}
+
+/** A JS constructor or closure whose node count went up across the run. */
+export interface SoakGrowth {
+  name: string;
+  delta: number;
+}
+
+export interface SoakDiagnosis {
+  /** Every detached class that grew, largest first. */
+  detached: SoakDetachedClass[];
+  /** The JS names that grew most, for leaks that never touch the DOM. */
+  growth: SoakGrowth[];
+  /** Where the two snapshots were written, when they were kept. */
+  snapshots?: { baseline: string; after: string };
+  /** Why the diagnosis is thin, when something cut it short. */
+  note?: string;
 }
 
 export interface SoakResult {
@@ -103,6 +150,8 @@ export interface SoakResult {
   exposeGc: boolean;
   /** Responses that timed out, when `waitForResponse` is set. */
   responseTimeouts: number;
+  /** What the heap snapshots found. Absent when diagnosis was off or not wanted. */
+  diagnosis?: SoakDiagnosis;
 }
 
 export type SoakAction = () => Promise<void> | void;

@@ -112,6 +112,8 @@ Defaults go in `use: { soakOptions }` in the config, or at the top of a spec wit
 | `tracePasses` | `25` | Passes read one at a time at the start of the run. |
 | `sampleEvery` | derived | Read every Nth pass after that. |
 | `label` | test title | Name used in the report and the reporter. |
+| `diagnose` | `'on-failure'` | Heap snapshots either side of the run, diffed to name what leaked. `'always'` reports on a clean run too, `'off'` skips the snapshots entirely. See [Diagnosis](#diagnosis). |
+| `diagnoseTimeoutMs` | `60000` | How long the snapshot work gets before it gives up. Going over leaves a note on the result; it never fails the run. |
 
 ## Virtual clock
 
@@ -178,6 +180,69 @@ The graphs are the readings taken across the run, scaled to each row's own range
 Growth that stopped is reported as `OVER THRESHOLD` rather than `LEAK DETECTED`. A single jump is labeled `all at once, at pass 10`, a climb that levels off early is labeled `climbed early, then levelled off`, and the message also suggests the number to raise the threshold to.
 
 The reporter prints a box per test and a table at the end of the run. On GitHub Actions it also writes an error annotation and a job summary. Failing rows are red where growth continues and amber where it stopped, with the same distinction in the wording. `NO_COLOR` turns color off and `FORCE_COLOR` turns it on.
+
+## Diagnosis
+
+The counts tell you a leak exists. They can't tell you what it is, because `Nodes` and `JSEventListeners` are totals with no names attached. So a failing run also takes a heap snapshot at the baseline pass and another at the end, diffs them by node name, and walks back from one leaked object to whatever is still holding it. That comes out under the usual box:
+
+```
+  Retained by
+
+    Detached <div>  +2,340  (39 → 2,379)
+      <div class="report-row"> ← <section class="report-drawer">
+        ← closure onResize (context: root) ← EventListener ← Window
+
+    Detached <span>  +2,340  (36 → 2,376)
+      <span> ← <div class="report-row"> ← <section class="report-drawer">
+        ← closure onResize (context: root) ← EventListener ← Window
+
+    Detached <section>  +195  (3 → 198)
+      <section class="report-drawer"> ← closure onResize (context: root) ← EventListener ← Window
+
+    1 more detached class grew.
+
+  Also growing: closure onResize +195
+```
+
+Read a chain right to left: `Window` is holding an `EventListener`, the listener calls a closure named `onResize`, and that closure captured a variable called `root` which is the detached `<section>`. That is a resize listener that was never removed, and `onResize` is the line of code to go and look at.
+
+The chain runs all the way to the root rather than stopping at the closure. The root end says *who* is holding it — `Window`, a module-level `Map`, a framework cache — and the closure in the middle says *which line of code* did it. Internal hops such as contexts and backing stores are collapsed, and a collapsed context hands its variable name to the closure above it, so both ends fit on one line and you don't have to give up either.
+
+### What gets reported
+
+| Field | What it holds |
+| --- | --- |
+| `detached` | Every class of detached DOM node whose count went up, largest first. `retainerPath` is filled in for the top three, since walking one is the expensive part. |
+| `growth` | The JS names that grew most: constructors, and closures named for their function. This is what catches a leak that never touches the DOM. |
+| `snapshots` | Where the two snapshots were written, when they were kept. |
+| `note` | Why the diagnosis is thin, when something cut it short. |
+
+A leak that stays out of the DOM has nothing detached to report, so it comes back under `growth` instead:
+
+```
+  Growing in the heap: Array +850, AuditEntry +850
+```
+
+Detached classes are grouped by tag rather than by the full markup, so `<div class="row-1">` and `<div class="row-2">` count as one `Detached <div>`. The markup is still there on the first hop of the chain, where it points at the element itself.
+
+### Snapshots
+
+Both snapshots are attached to the test result, so they can be pulled out of the report and dragged into DevTools → Memory for the full retainer tree:
+
+```sh
+npx playwright show-report
+```
+
+The baseline one has to be taken before anyone knows whether the run will fail, so it is taken on every run that has diagnosis on at all, and deleted again when the run passes. A snapshot of a real app runs to hundreds of megabytes and takes a few seconds, so turn diagnosis off if a clean run needs to be as quick as it can be:
+
+```ts
+test.use({ soakOptions: { diagnose: 'off' } });
+```
+
+`'always'` goes the other way and reports on a clean run too, which is a way to see what a flow allocates before anything is wrong.
+
+Taking a snapshot forces a collection of its own, so the second one waits until the last reading is in rather than moving the number it is there to explain. If the snapshot work runs past `diagnoseTimeoutMs`, the diagnosis is abandoned with a note and the run's own verdict is unaffected.
+
 
 ## API
 
@@ -287,12 +352,42 @@ Every call returns a `SoakResult`, and `SoakLeakError` contains the same object 
   },
   exposeGc: true,
   responseTimeouts: 0,
+  diagnosis: {
+    detached: [
+      {
+        className: 'Detached <div>',
+        baseline: 39,
+        after: 2379,
+        delta: 2340,
+        retainerPath: [
+          '<div class="report-row">',
+          '<section class="report-drawer">',
+          'closure onResize (context: root)',
+          'EventListener',
+          'Window',
+        ],
+      },
+      ...
+    ],
+    growth: [
+      {
+        name: 'closure onResize',
+        delta: 195,
+      },
+    ],
+    snapshots: {
+      baseline: 'test-results/.../soak-the-dashboard-drawer-does-not-leak-baseline.heapsnapshot',
+      after: 'test-results/.../soak-the-dashboard-drawer-does-not-leak-after.heapsnapshot',
+    },
+  },
 }
 ```
 
 `perPass` is the slope of the fitted line and `total` is the last reading minus the baseline. `r2` is how well that line fits, and `shape` is derived from it: `flat`, `linear`, `step`, `settled` or `noisy`. A `step` trend also contains `stepAtPass`, the pass the jump landed on.
 
-The types are exported too: `Soak`, `SoakAction`, `SoakOptions`, `SoakRunOptions`, `SoakClockOptions`, `SoakResult`, `SoakSample`, `SoakTrend`, `SoakMetrics`, `SoakFailure`, `SoakFixtures` and `SoakTestOptions`.
+`diagnosis` is what the heap snapshots found, and is only there when there was a reason to look: a run that failed, or one asked for with `diagnose: 'always'`. See [Diagnosis](#diagnosis).
+
+The types are exported too: `Soak`, `SoakAction`, `SoakOptions`, `SoakRunOptions`, `SoakClockOptions`, `SoakResult`, `SoakSample`, `SoakTrend`, `SoakMetrics`, `SoakFailure`, `SoakDiagnosis`, `SoakDiagnoseMode`, `SoakDetachedClass`, `SoakGrowth`, `SoakFixtures` and `SoakTestOptions`.
 
 ## Long runs
 
@@ -314,7 +409,8 @@ A run prints its progress every `progressEveryMs`, which defaults to 30 seconds:
 - Readings vary between runs, so this belongs in a nightly job rather than on every pull request. With `workers: 1` and `retries: 0`, each run gets a browser to itself.
 - Clicking an element that your flow then removes adds two retained nodes a pass in Chromium. They only turn up on a subtree the app is already keeping, so a clean build still reads exactly 0.
 - A `::before` or `::after` with `content` puts a `PseudoElement` and its text into the node count, so a component can read two nodes higher than the elements you actually wrote.
-- The counts miss anything that stays out of the DOM. A poller that keeps every response in an array grows the heap by 300% with the counts dead flat, and the run passes. Use `heapThresholdPercent` to catch that case.
+- The counts miss anything that stays out of the DOM. A poller that keeps every response in an array grows the heap by 300% with the counts dead flat, and the run passes. Use `heapThresholdPercent` to catch that case; the [diagnosis](#diagnosis) then names what piled up.
+- Diagnosis reads the snapshot with a single `JSON.parse`, so a page whose snapshot runs past Node's string limit is out of reach for now. `diagnoseTimeoutMs` stops that from turning into a failed test.
 
 ## Examples
 

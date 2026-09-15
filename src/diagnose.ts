@@ -9,6 +9,31 @@ import {
 } from './stats.js';
 import type { SoakResult, SoakTrend } from './types.js';
 
+/** Detached classes and retainer paths shown in the report. */
+const SHOWN = 3;
+
+/** Where a retainer chain folds onto a continuation line. */
+const CHAIN_WIDTH = 92;
+
+/** A chain across as many lines as it needs, broken between hops. */
+function wrapChain(path: string[], indent: string): string[] {
+  const lines: string[] = [];
+  let current = '';
+
+  for (const [index, hop] of path.entries()) {
+    const piece = index === 0 ? hop : `← ${hop}`;
+    if (!current) current = piece;
+    else if (current.length + piece.length + 1 <= CHAIN_WIDTH) current += ` ${piece}`;
+    else {
+      lines.push(current);
+      current = piece;
+    }
+  }
+  if (current) lines.push(current);
+
+  return lines.map((line, index) => `${indent}${index === 0 ? '' : '  '}${line}`);
+}
+
 export function formatDuration(ms: number): string {
   const totalMinutes = Math.round(ms / 60_000);
   const hours = Math.floor(totalMinutes / 60);
@@ -142,6 +167,58 @@ export function interpret(result: SoakResult): string[] {
   return lines;
 }
 
+/**
+ * What the heap snapshots found: which detached classes grew, and the chain of
+ * holders keeping one example of each alive.
+ *
+ * The chain runs all the way to the root rather than stopping at the first
+ * closure. The root says who is holding it -- `Window`, a module-level `Map`, a
+ * framework cache -- and the closure in the middle says which line of code did
+ * it. Internal hops collapse, so both fit on one line and neither has to be
+ * given up for the other.
+ *
+ * Returns nothing when there is nothing to say, so the caller can skip the
+ * whole section rather than print an empty heading.
+ */
+export function describeDiagnosis(result: SoakResult): string[] {
+  const diagnosis = result.diagnosis;
+  if (!diagnosis) return [];
+
+  const lines: string[] = [];
+  const top = diagnosis.detached.slice(0, SHOWN);
+
+  if (top.length) {
+    lines.push('Retained by');
+    for (const entry of top) {
+      const counts = `${formatCount(entry.baseline)} → ${formatCount(entry.after)}`;
+      lines.push('', `  ${entry.className}  ${formatSigned(entry.delta)}  (${counts})`);
+      lines.push(
+        ...(entry.retainerPath.length
+          ? wrapChain(entry.retainerPath, '    ')
+          : ['    nothing in the snapshot holds it, so it is already waiting to be collected.']),
+      );
+    }
+
+    const rest = diagnosis.detached.length - top.length;
+    if (rest > 0) {
+      lines.push('', `  ${formatCount(rest)} more detached ${rest === 1 ? 'class' : 'classes'} grew.`);
+    }
+  }
+
+  if (diagnosis.growth.length) {
+    const list = diagnosis.growth.map((g) => `${g.name} ${formatSigned(g.delta)}`).join(', ');
+    if (lines.length) lines.push('');
+    lines.push(top.length ? `Also growing: ${list}` : `Growing in the heap: ${list}`);
+  }
+
+  if (diagnosis.note) {
+    if (lines.length) lines.push('');
+    lines.push(diagnosis.note);
+  }
+
+  return lines;
+}
+
 function notes(result: SoakResult): string[] {
   const lines: string[] = [];
 
@@ -180,13 +257,17 @@ export function buildReport(result: SoakResult, heading: string): string {
   ];
 
   if (result.leaking) {
-    blocks.push(
-      [''],
-      [
-        '  Find it: DevTools → Memory → take a heap snapshot, then filter the class list for',
-        '  "Detached". Clicking a node shows its retainers, so you can see what still references it.',
-      ],
-    );
+    const diagnosis = describeDiagnosis(result);
+    if (diagnosis.length) blocks.push([''], diagnosis.map((l) => (l ? `  ${l}` : '')));
+
+    const findIt = [
+      '  Find it: DevTools → Memory → take a heap snapshot, then filter the class list for',
+      '  "Detached". Clicking a node shows its retainers, so you can see what still references it.',
+    ];
+    if (result.diagnosis?.snapshots) {
+      findIt.push("  Both snapshots from this run are attached, so they can be dragged straight in.");
+    }
+    blocks.push([''], findIt);
   }
 
   const trailing = notes(result);

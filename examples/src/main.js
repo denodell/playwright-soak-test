@@ -4,6 +4,7 @@ import { openTicker, closeTicker } from './ticker.js';
 import { openFeed, closeFeed } from './feed.js';
 import { showRows } from './pool.js';
 import { openShortcuts, closeShortcuts } from './shortcuts.js';
+import { recordBatch } from './audit.js';
 
 const toggle = document.getElementById('toggle-drawer');
 let shown = false;
@@ -52,6 +53,8 @@ window.__shortcuts = { open: openShortcuts, close: closeShortcuts };
 window.__shortcutHits = 0;
 window.__shortcutPanels = 0;
 window.__pool = { show: showRows };
+window.__auditTrail = { record: recordBatch };
+window.__auditSize = 0;
 window.__poolSize = 0;
 window.__feedRows = 0;
 window.__feedHistory = 0;
