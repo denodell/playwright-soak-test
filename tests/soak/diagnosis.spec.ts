@@ -102,7 +102,7 @@ test('the array on window shows up as heap growth, with nothing detached', async
   expect(entries).toBeDefined();
   expect(entries!.delta).toBeGreaterThanOrEqual((PASSES - result.warmup) * 50);
 
-  expect(message).toContain('Nothing came off the page');
+  expect(message).toContain('this is data the app keeps');
   expect(message).toContain('AuditEntry');
 });
 

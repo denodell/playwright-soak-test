@@ -210,7 +210,7 @@ type Anchor = 'timer' | 'listener' | 'container' | 'global' | 'other';
 
 interface Culprit {
   anchor: Anchor;
-  /** The function whose scope is holding on, without the `closure` prefix. */
+  /** The function whose scope keeps it alive, without the `closure` prefix. */
   fn?: string;
   /** The variable in that scope. */
   variable?: string;
@@ -231,9 +231,10 @@ function readChain(path: SoakRetainerHop[]): Culprit {
 
     // Whatever the captured variable turns out to be. When it is the leaked
     // object there is nothing in between; when it is a collection, that
-    // collection is the thing that never gets emptied.
+    // collection is the thing that keeps growing. Anything else in between has
+    // no name worth putting in a sentence, so it stays in the chain only.
     const next = path[closureAt + 1]?.node;
-    if (next && next !== path.at(-1)?.node) out.container = next;
+    if (next && next !== path.at(-1)?.node && next in COLLECTIONS) out.container = next;
   }
 
   const root = path[0];
@@ -282,39 +283,55 @@ function sentence(text: string, width = 88): string[] {
   return lines;
 }
 
+/** Collections a reader would recognize as the thing that keeps growing. */
+const COLLECTIONS: Record<string, string> = { Array: 'an array', Map: 'a map', Set: 'a set' };
+
 /** The sentence a reader acts on. The chain underneath it is the evidence. */
 function describeLeak(leak: Leak, result: SoakResult): string[] {
   const { anchor, fn, variable, container, global } = readChain(leak.path);
-
-  const opening: string = {
-    timer: 'A timer was never cleared.',
-    listener: 'A listener on window was never removed.',
-    container: `${container === 'Array' ? 'An array' : `A ${container}`} that never gets emptied is`
-      + ' holding them.',
-    global: `Something reachable from \`${global}\` is holding them.`,
-    other: 'Something the page still reaches is holding them.',
-  }[anchor];
-
   const what = `the ${leak.what} your flow built`;
-  const middle = !fn
-    ? `Nothing removed the last reference to ${what}.`
-    : container
-      ? `\`${fn}\` captured it${variable ? ` as \`${variable}\`` : ''}, and it still holds ${what}.`
-      : `Its callback \`${fn}\` captured${variable ? ` \`${variable}\`, which is` : ''} ${what}.`;
+  const collection = container ? COLLECTIONS[container] : undefined;
+
+  // Only a timer and a listener need a sentence of their own, because the missing
+  // `clearTimeout` or `removeEventListener` is the fix and the chain cannot say
+  // it. The rest is said once, by the sentence about the code.
+  const missing =
+    anchor === 'timer'
+      ? 'A timer was never cleared. '
+      : anchor === 'listener'
+        ? 'A listener on window was never removed. '
+        : '';
+
+  let cause: string;
+  if (fn && collection) {
+    const named = variable ? ` as \`${variable}\`` : '';
+    cause = `\`${fn}\` captured ${collection}${named}. The ${container!.toLowerCase()} keeps`
+      + ` growing, and it still references ${what}.`;
+  } else if (collection) {
+    cause = `${collection[0]!.toUpperCase()}${collection.slice(1)} that keeps growing still`
+      + ` references ${what}.`;
+  } else if (fn) {
+    const captured = variable ? ` \`${variable}\`, which is` : '';
+    cause = `Its callback \`${fn}\` captured${captured} ${what}.`;
+  } else if (global) {
+    cause = `Something on \`${global}\` still references ${what}.`;
+  } else {
+    cause = `Something still references ${what}.`;
+  }
 
   const perPass = leak.delta === result.passes - result.warmup ? ', one per pass' : '';
   const count = `${formatCount(leak.delta)} of them are off the page and still in memory${perPass}.`;
 
-  return [...sentence(`${opening} ${middle} ${count}`), '', `  ${chainLine(leak.path)}`];
+  return [...sentence(`${missing}${cause} ${count}`), '', `  ${chainLine(leak.path)}`];
 }
 
 /**
  * What the heap snapshots found, in the same voice as the rest of the report: the
- * cause in a sentence, then the chain of holders as the evidence for it.
+ * cause in a sentence, then the chain of retainers as the evidence for it.
  *
  * The chain runs all the way to the root rather than stopping at the closure. The
- * root end says who is holding it -- a listener, a timer, something on `window` --
- * and the closure in the middle says which line of code did it.
+ * root end says what keeps it alive, a listener or a timer or something stored on
+ * `window`, and the closure in the middle says which line of code did it.
  *
  * Returns nothing when there is nothing to say, so the caller can skip the whole
  * section rather than print an empty heading.
@@ -333,7 +350,7 @@ export function describeDiagnosis(result: SoakResult): string[] {
 
   const rest = leaks.length - SHOWN;
   if (rest > 0) {
-    lines.push('', `${formatCount(rest)} more ${rest === 1 ? 'leak' : 'leaks'} like this were found.`);
+    lines.push('', `The run found ${formatCount(rest)} more ${rest === 1 ? 'leak' : 'leaks'} like this.`);
   }
 
   // Nothing detached means the leak never reached the page, so the growing JS
@@ -342,8 +359,8 @@ export function describeDiagnosis(result: SoakResult): string[] {
     const list = diagnosis.growth.map((g) => `${g.name} ${formatSigned(g.delta)}`).join(', ');
     lines.push(
       ...sentence(
-        'Nothing came off the page, so this is data the app is keeping rather than DOM it' +
-        ` forgot. Most of the growth is in ${list}.`,
+        'Nothing came off the page, so this is data the app keeps rather than DOM it removed' +
+        ` and still references. Most of the growth is in ${list}.`,
       ),
     );
   }

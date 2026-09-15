@@ -183,7 +183,7 @@ The reporter prints a box per test and a table at the end of the run. On GitHub 
 
 ## Diagnosis
 
-The counts tell you a leak exists. They can't tell you what it is, because `Nodes` and `JSEventListeners` are totals with no names attached. So a failing run also takes a heap snapshot at the baseline pass and another at the end, diffs them by node name, and walks back from one leaked object to whatever is still holding it. That comes out under the usual box:
+The counts tell you a leak exists. They can't tell you what it is, because `Nodes` and `JSEventListeners` are totals with no names attached. So a failing run also takes a heap snapshot at the baseline pass and another at the end, diffs them by node name, and walks back from one leaked object to whatever still references it. That comes out under the usual box:
 
 ```
   A listener on window was never removed. Its callback `onResize` captured `root`, which
@@ -193,14 +193,14 @@ The counts tell you a leak exists. They can't tell you what it is, because `Node
     window → EventListener → onResize() → <section class="report-drawer">
 ```
 
-The sentence is the answer; the chain is the evidence for it, read left to right as "holds". `onResize` is the function to go and look at, `root` is the variable it captured, and `window` is what is keeping the whole thing reachable.
+The sentence is the answer, and the chain is the evidence for it, read left to right as "keeps alive". `onResize` is the function to go and look at, `root` is the variable it captured, and `window` is what keeps the whole thing reachable.
 
 A leak with a collection in the middle of it reads the same way:
 
 ```
-  An array that never gets emptied is holding them. `openDrawer` captured it as `history`,
-  and it still holds the <section class="feed-panel"> your flow built. 195 of them are off
-  the page and still in memory, one per pass.
+  `openDrawer` captured an array as `history`. The array keeps growing, and it still
+  references the <section class="feed-panel"> your flow built. 195 of them are off the page
+  and still in memory, one per pass.
 
     window.__drawer → openDrawer() → Array → <section class="feed-panel">
 ```
@@ -219,7 +219,7 @@ A timer that was never cleared reads as a timer, rather than as the machinery th
 
 A leaking drawer shows up in the snapshot as four detached classes: the `<section>`, the `<div>` rows inside it, their `<span>`s, and the `<h2>`. That is one bug counted four ways, and reporting it four times buries the answer under three copies of the same chain.
 
-So the chains are grouped. Read from the root, they share a prefix, and that prefix ends on the thing that actually leaked; everything past it is that thing's contents. The report names the container and leaves the contents out, because nobody fixes `<span> +2,340` — they fix `onResize`. The counts for every class are still on the result if you want them.
+So the chains are grouped. Read from the root, they share a prefix, and that prefix ends on the thing that actually leaked, and everything past it is that thing's contents. The report names the container and leaves the contents out, because nobody fixes `<span> +2,340` — they fix `onResize`. The counts for every class are still on the result if you want them.
 
 Detached classes are grouped by tag rather than by the full markup, so `<div class="row-1">` and `<div class="row-2">` count as one `Detached <div>`. The markup is still there on the chain, where it points at the element itself.
 
@@ -227,7 +227,7 @@ Detached classes are grouped by tag rather than by the full markup, so `<div cla
 
 | Field | What it holds |
 | --- | --- |
-| `detached` | Every class of detached DOM node whose count went up, largest first. `retainerPath` holds the chain of holders, root first and the leaked object last, as `{ node, edge }` hops. |
+| `detached` | Every class of detached DOM node whose count went up, largest first. `retainerPath` is the chain of retainers, root first and the leaked object last, as `{ node, edge }` hops. |
 | `growth` | The JS names that grew most: constructors, and closures named for their function. This is what catches a leak that never touches the DOM. |
 | `snapshots` | Where the two snapshots were written, when they were kept. |
 | `note` | Why the diagnosis is thin, when something cut it short. |
@@ -235,8 +235,8 @@ Detached classes are grouped by tag rather than by the full markup, so `<div cla
 A leak that stays out of the DOM has nothing detached to report, so it comes back under `growth` instead:
 
 ```
-  Nothing came off the page, so this is data the app is keeping rather than DOM it forgot.
-  Most of the growth is in Array +850, AuditEntry +850.
+  Nothing came off the page, so this is data the app keeps rather than DOM it removed and
+  still references. Most of the growth is in Array +850, AuditEntry +850.
 ```
 
 ### Snapshots
