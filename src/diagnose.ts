@@ -304,11 +304,14 @@ function describeLeak(leak: Leak, result: SoakResult): string[] {
   // leak it did not cause. The count only moves when one is really left behind.
   const listenerLeaked = anchor === 'listener' && result.trends.listeners.total > 0;
 
-  const missing =
+  // What the snapshot actually found, rather than what nobody got round to doing.
+  // A timer sitting in the pending store and a listener still in the chain are
+  // both things it saw; "never cleared" was a guess at how they got there.
+  const anchored =
     anchor === 'timer'
-      ? 'A timer was never cleared. '
+      ? 'A timer is still pending. '
       : listenerLeaked
-        ? `A listener${listenerTarget ? ` on ${listenerTarget}` : ''} was never removed. `
+        ? `A listener${listenerTarget ? ` on ${listenerTarget}` : ''} is still registered. `
         : '';
 
   let cause: string;
@@ -321,7 +324,9 @@ function describeLeak(leak: Leak, result: SoakResult): string[] {
   } else if (fn) {
     // No variable name: when it is the leaked object, `root` or `state` is a term
     // the reader has to look up for something already described.
-    cause = `${missing ? `Its callback \`${fn}\`` : `\`${fn}\``} still references ${what}.`;
+    cause = anchored
+      ? `Its callback \`${fn}\` points at ${what}.`
+      : `\`${fn}\` still references ${what}.`;
   } else if (global) {
     cause = `Something on \`${global}\` still references ${what}.`;
   } else {
@@ -329,7 +334,7 @@ function describeLeak(leak: Leak, result: SoakResult): string[] {
   }
 
   // No count and no rate: the box has both, and `interpret` says the rate again.
-  return [...sentence(`${missing}${cause}`), '', `  ${chainLine(leak.path)}`];
+  return [...sentence(`${anchored}${cause}`), '', `  ${chainLine(leak.path)}`];
 }
 
 /**

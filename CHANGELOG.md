@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `growth`, the JS constructors and named closures that grew most
 - Detached classes that share a chain reported as one leak, not one finding per class
 - Retainer chains through the virtual clock reported as `a pending timer`
+- Detached DOM and JS growth named in a sentence under the reporter's box
 - `diagnose` option: `'on-failure'` (default), `'always'` or `'off'`
 - `diagnoseTimeoutMs` option, default 60,000, leaving a note rather than failing the test
 - Both snapshots attached as `soak-heap-baseline` and `soak-heap-after`

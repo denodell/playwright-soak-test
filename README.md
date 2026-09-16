@@ -186,7 +186,7 @@ The reporter prints a box per test and a table at the end of the run. On GitHub 
 A count going up tells you something leaked. It doesn't tell you what, so a failing run also takes a heap snapshot at the baseline pass and another at the end, and works out the answer from the difference. That prints under the box:
 
 ```
-  A listener on window was never removed. Its callback `onResize` still references the
+  A listener on window is still registered. Its callback `onResize` points at the
   <section class="report-drawer"> element.
 
     window → EventListener → onResize() → <section class="report-drawer">
@@ -204,7 +204,7 @@ The other two common shapes look like this:
 ```
 
 ```
-  A timer was never cleared. Its callback `tick` still references the <section
+  A timer is still pending. Its callback `tick` points at the <section
   class="live-tile"> element.
 
     a pending timer → tick() → <section class="live-tile">

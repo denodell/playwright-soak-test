@@ -58,7 +58,7 @@ test('names what the listener is registered on, rather than assuming window', ()
     ),
   ).join('\n');
 
-  expect(lines).toContain('A listener on <div id="host"> was never removed');
+  expect(lines).toContain('A listener on <div id="host"> is still registered');
   expect(lines).not.toContain('on window');
 });
 
@@ -90,7 +90,7 @@ test('a chain longer than the printed cap still folds into one leak', () => {
 
   // One sentence, not one per detached class. The phrase appears once even though
   // the sentence itself wraps across lines.
-  expect(lines.filter((l) => l.includes('was never removed'))).toHaveLength(1);
+  expect(lines.filter((l) => l.includes('is still registered'))).toHaveLength(1);
   expect(lines.join(' ')).toContain('<section class="drawer">');
 
   // The printed chain is capped, but both ends survive so it still reads.
@@ -149,6 +149,6 @@ test('a delegated listener that never leaked is not blamed for the array it hold
     }),
   ).join('\n');
 
-  expect(lines).not.toContain('was never removed');
+  expect(lines).not.toContain('is still registered');
   expect(lines).toContain('An array called `seen` keeps growing');
 });
