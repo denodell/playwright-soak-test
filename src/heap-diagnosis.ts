@@ -20,21 +20,18 @@ import type {
   SoakRetainerHop,
 } from './types.js';
 
-// One leak usually spans several classes, and they only group back into a
-// single finding if each of them has a path, so this sits well above the three
-// the report goes on to show.
+// One leak spans several classes, and they only group back into a single
+// finding if each of them has a path, so this sits above the three on show.
 const RETAINER_PATHS = 12;
 
-/** How many growing JS names the result carries. */
 const GROWTH_NAMES = 5;
 
 /** One more of something is a coincidence, so growth starts at two. */
 const GROWTH_FLOOR = 2;
 
-// `installSoakClock` keeps pending timers in the injected clock's own object
-// graph, so a leaked timer is reached through the clock's objects rather than
-// through anything your app wrote. Matched by name, so it wants keeping in step
-// with `page.clock`.
+// `installSoakClock` keeps pending timers in the injected clock's own objects,
+// so a leaked timer is reached through those rather than anything your app
+// wrote. Matched by name, so it wants keeping in step with `page.clock`.
 const CLOCK_ANCHOR = '__pwClock';
 const PENDING_TIMER = 'a pending timer';
 
@@ -77,9 +74,8 @@ function countNames(snapshot: HeapSnapshot): NameCounts {
 }
 
 // Blink puts these between a listener and the function it calls, and every
-// registration goes through the same ones, so they add hops without adding
-// anything you can act on. `EventListener` stays, since that one says how the
-// reference was made.
+// registration goes through the same ones, so they add hops you cannot act on.
+// `EventListener` stays, since that one says how the reference was made.
 const PLUMBING = new Set(['InternalNode', 'V8EventListener', 'Detached InternalNode']);
 
 /**
@@ -433,7 +429,6 @@ export class HeapDiagnostics {
     });
   }
 
-  /** Parses both snapshots, diffs them, attaches them, and returns what it found. */
   async build(): Promise<SoakDiagnosis> {
     const diff = await this.stage(async (budget) => {
       if (!this.captured.baseline || !this.captured.after) {
@@ -473,7 +468,7 @@ export class HeapDiagnostics {
     return diagnosis;
   }
 
-  /** Attaches both, so you can drag them into DevTools → Memory yourself. */
+  /** Attached so you can drag them into DevTools → Memory yourself. */
   private async attach(): Promise<{ baseline: string; after: string } | null> {
     const { testInfo } = this.options;
     if (!testInfo || !this.captured.baseline || !this.captured.after) return null;
@@ -492,7 +487,6 @@ export class HeapDiagnostics {
     }
   }
 
-  /** Drops both files, which is what a passing `diagnose: 'on-failure'` run wants. */
   async discard(): Promise<void> {
     await Promise.all([
       fsp.rm(this.files.baseline, { force: true }),

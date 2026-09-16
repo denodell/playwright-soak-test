@@ -291,10 +291,8 @@ function sentence(text: string, width = 88): string[] {
   return lines;
 }
 
-/** Collections a reader would recognize as the thing that keeps growing. */
 const COLLECTIONS: Record<string, string> = { Array: 'an array', Map: 'a map', Set: 'a set' };
 
-/** The sentence a reader acts on. The chain underneath it is the evidence. */
 function describeLeak(leak: Leak, result: SoakResult): string[] {
   const { anchor, fn, variable, container, global, listenerTarget } = readChain(leak.path);
   // "element" only suits the markup spelling; `Detached HTMLDivElement` already
@@ -335,15 +333,9 @@ function describeLeak(leak: Leak, result: SoakResult): string[] {
 }
 
 /**
- * What the heap snapshots found, in the same voice as the rest of the report: the
- * cause in a sentence, then the chain of retainers as the evidence for it.
- *
- * The chain runs all the way to the root rather than stopping at the closure. The
- * root end says what keeps it alive, a listener or a timer or something stored on
- * `window`, and the closure in the middle says which line of code did it.
- *
- * Returns nothing when there is nothing to say, so the caller can skip the whole
- * section rather than print an empty heading.
+ * The cause in a sentence, then the chain as the evidence for it. Nothing comes
+ * back when there is nothing to say, so the caller can skip the section rather
+ * than print an empty heading.
  */
 export function describeDiagnosis(result: SoakResult): string[] {
   const diagnosis = result.diagnosis;
@@ -395,7 +387,7 @@ export function describeDiagnosis(result: SoakResult): string[] {
   return lines;
 }
 
-/** True once the snapshots have named a cause, so the report can stop guessing at one. */
+/** Once this is true, the report can stop guessing at a cause. */
 export function hasNamedCause(result: SoakResult): boolean {
   return groupLeaks(result.diagnosis?.detached ?? []).length > 0;
 }

@@ -14,9 +14,6 @@
  * every node before it, so a prefix sum over the edge counts is what turns a
  * node ordinal into a slice of the edge array. An edge's `to_node` is an offset
  * into `nodes` rather than an ordinal, so it divides back by the field count.
- *
- * No `node:fs` and nothing soak-specific here, so a streaming reader can replace
- * `parseHeapSnapshot` later without the rest of the code noticing.
  */
 
 export type HeapNodeType =
@@ -79,7 +76,6 @@ export interface RetainerStep {
 /** The root of every snapshot, and where a retainer walk ends. */
 export const ROOT_NODE = 0;
 
-/** What a detached class is called in the report, and in DevTools' own class list. */
 export const DETACHED_PREFIX = 'Detached ';
 
 /** The value the `detachedness` node field carries for a node off the page. */
@@ -326,7 +322,6 @@ export class HeapSnapshot {
   }
 }
 
-/** One `JSON.parse`, and the piece a streaming reader would replace. */
 export function parseHeapSnapshot(json: string): HeapSnapshot {
   return new HeapSnapshot(JSON.parse(json) as RawHeapSnapshot);
 }

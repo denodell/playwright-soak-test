@@ -195,9 +195,8 @@ async function executeSoak(
   await heap?.captureBaseline();
 
   // A flow that throws leaves the run without a verdict, and the baseline
-  // snapshot is already on disk by then. On a real app that is hundreds of
-  // megabytes in the output directory, plus a temp directory of its own when
-  // there is no `testInfo` to put it beside.
+  // snapshot is already on disk by then, which on a real app is hundreds of
+  // megabytes left in your output directory.
   let settled = false;
   try {
 
@@ -260,9 +259,8 @@ async function executeSoak(
     let diagnosis: SoakDiagnosis | undefined;
     if (heap) {
       // Nothing between the last reading and here touches the page, so waiting
-      // until the verdict is in costs the second snapshot nothing and saves taking
-      // one at all on a run that passes, which is most of them. Taking it forces a
-      // collection of its own, which is why it could never have come any earlier.
+      // for the verdict costs the second snapshot nothing and saves taking one at
+      // all on a run that passes. It forces a collection, so it cannot come earlier.
       const wanted = opts.diagnose === 'always' || failures.length > 0;
       if (wanted) {
         await heap.captureAfter();
