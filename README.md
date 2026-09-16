@@ -113,7 +113,7 @@ Defaults go in `use: { soakOptions }` in the config, or at the top of a spec wit
 | `sampleEvery` | derived | Read every Nth pass after that. |
 | `label` | test title | Name used in the report and the reporter. |
 | `diagnose` | `'on-failure'` | Heap snapshots either side of the run, diffed to name what leaked. `'always'` reports on a clean run too, `'off'` skips the snapshots entirely. See [Diagnosis](#diagnosis). |
-| `diagnoseTimeoutMs` | `60000` | How long the snapshot work gets before it gives up. Going over leaves a note on the result; it never fails the run. |
+| `diagnoseTimeoutMs` | `60000` | How long the snapshot work has before the diagnosis is dropped. Going over leaves a note on the result and never fails the run. |
 
 ## Virtual clock
 
@@ -183,7 +183,7 @@ The reporter prints a box per test and a table at the end of the run. On GitHub 
 
 ## Diagnosis
 
-A count going up tells you something leaked. It doesn't tell you what, so a failing run also takes a heap snapshot at the baseline pass and another at the end, and works out the answer from the difference. That prints under the box:
+A count going up tells you something leaked. It doesn't tell you what, so a failing run also takes a heap snapshot at the baseline pass and another at the end, and works out what leaked from the difference. That prints under the box:
 
 ```
   A listener on window is still registered. Its callback `onResize` points at the
@@ -192,9 +192,9 @@ A count going up tells you something leaked. It doesn't tell you what, so a fail
     window → EventListener → onResize() → <section class="report-drawer">
 ```
 
-So go and look at `onResize`. The chain underneath reads left to right: `window` is keeping the listener, the listener calls `onResize`, and `onResize` still points at a section that came off the page.
+`onResize` is where to look. The chain under the sentence says why: `window` keeps the listener, the listener calls `onResize`, and `onResize` points at a section that came off the page.
 
-The other two common shapes look like this:
+The other two common causes look like this:
 
 ```
   An array called `history` keeps growing, and it still references the
@@ -217,23 +217,23 @@ A leak that stays out of the DOM has no element to name, so you get the class na
   still references. Most of the growth is in Array +850, AuditEntry +850.
 ```
 
-All of it is on `result.diagnosis` as well, under `detached`, `growth` and `snapshots`, with a `note` when something cut the diagnosis short.
+The same findings are on `result.diagnosis`, under `detached`, `growth` and `snapshots`, plus a `note` if something cut the diagnosis short.
 
 ### The snapshots
 
-Both snapshots are attached to the test result. Open the report and drag either one into DevTools → Memory to go further than the report does:
+Both snapshots are attached to the test result, so you can open the report and drag either one into DevTools → Memory for the full retainer tree:
 
 ```sh
 npx playwright show-report
 ```
 
-A snapshot of a real app is hundreds of megabytes and takes a few seconds, so turn diagnosis off if you need a clean run to be as fast as it can be:
+A snapshot of a real app is hundreds of megabytes and takes a few seconds, so diagnosis is worth turning off when a clean run needs to be quick:
 
 ```ts
 test.use({ soakOptions: { diagnose: 'off' } });
 ```
 
-`'always'` goes the other way and reports on a clean run too, which shows you what a flow allocates before anything is wrong. Either way, if the snapshot work runs past `diagnoseTimeoutMs`, the diagnosis is dropped and the run still passes or fails on its own counts.
+`'always'` reports on a clean run too, which shows what a flow allocates before anything is wrong. If the snapshot work runs past `diagnoseTimeoutMs` the diagnosis is dropped, and the run still passes or fails on its own counts.
 
 ## API
 
@@ -375,7 +375,7 @@ Every call returns a `SoakResult`, and `SoakLeakError` contains the same object 
 
 `perPass` is the slope of the fitted line and `total` is the last reading minus the baseline. `r2` is how well that line fits, and `shape` is derived from it: `flat`, `linear`, `step`, `settled` or `noisy`. A `step` trend also contains `stepAtPass`, the pass the jump landed on.
 
-`diagnosis` is what the heap snapshots found, and is only there when there was a reason to look: a run that failed, or one asked for with `diagnose: 'always'`. See [Diagnosis](#diagnosis).
+`diagnosis` is what the heap snapshots found. It is only there on a run that failed, or one that asked for it with `diagnose: 'always'`. See [Diagnosis](#diagnosis).
 
 The types are exported too: `Soak`, `SoakAction`, `SoakOptions`, `SoakRunOptions`, `SoakClockOptions`, `SoakResult`, `SoakSample`, `SoakTrend`, `SoakMetrics`, `SoakFailure`, `SoakDiagnosis`, `SoakDiagnoseMode`, `SoakDetachedClass`, `SoakRetainerHop`, `SoakGrowth`, `SoakFixtures` and `SoakTestOptions`.
 
@@ -400,7 +400,7 @@ A run prints its progress every `progressEveryMs`, which defaults to 30 seconds:
 - Clicking an element that your flow then removes adds two retained nodes a pass in Chromium. They only turn up on a subtree the app is already keeping, so a clean build still reads exactly 0.
 - A `::before` or `::after` with `content` puts a `PseudoElement` and its text into the node count, so a component can read two nodes higher than the elements you actually wrote.
 - The counts miss anything that stays out of the DOM. A poller that keeps every response in an array grows the heap by 300% with the counts dead flat, and the run passes. Use `heapThresholdPercent` to catch that case; the [diagnosis](#diagnosis) then names what piled up.
-- Diagnosis reads the snapshot with a single `JSON.parse`, so a page whose snapshot runs past Node's string limit is out of reach for now. `diagnoseTimeoutMs` is checked between each step of the diagnosis and before each chain is walked, but it cannot interrupt one `JSON.parse`, so a snapshot large enough to take minutes to read will run past it.
+- Diagnosis reads the snapshot with a single `JSON.parse`, so a page whose snapshot is larger than Node's maximum string cannot be diagnosed at all. `diagnoseTimeoutMs` is checked between the steps and before each chain is walked, but one `JSON.parse` cannot be interrupted, so a snapshot that takes minutes to read will run past the budget.
 
 ## Examples
 
