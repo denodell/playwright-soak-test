@@ -17,9 +17,9 @@
 const RETAINED = 50;
 const ENTRIES_PER_BATCH = 50;
 
-const DETAIL =
-  'recorded by the ops dashboard ingest pipeline, retained for the audit window, ' +
-  'carrying the request id, the actor and the resolved permission set for replay';
+// Nothing reads this. Each entry has to weigh something, or a batch of 50 would
+// not move the heap far enough to measure.
+const DETAIL = 'x'.repeat(155);
 
 class AuditEntry {
   constructor(id) {
