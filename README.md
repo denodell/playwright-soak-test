@@ -194,7 +194,7 @@ A count going up tells you something leaked. It doesn't tell you what, so a fail
 
 So go and look at `onResize`. The chain underneath reads left to right: `window` is keeping the listener, the listener calls `onResize`, and `onResize` still points at a section that came off the page.
 
-The other two common shapes look like this. An array nobody trims:
+The other two common shapes look like this:
 
 ```
   An array called `history` keeps growing, and it still references the
@@ -203,8 +203,6 @@ The other two common shapes look like this. An array nobody trims:
     window.__drawer → openDrawer() → Array → <section class="feed-panel">
 ```
 
-And a timer nobody cleared:
-
 ```
   A timer was never cleared. Its callback `tick` still references the <section
   class="live-tile"> element.
@@ -212,7 +210,7 @@ And a timer nobody cleared:
     a pending timer → tick() → <section class="live-tile">
 ```
 
-A leak that never touches the DOM has no element to name, so you get the class names that grew instead:
+A leak that stays out of the DOM has no element to name, so you get the class names that grew instead:
 
 ```
   Nothing came off the page, so this is data the app keeps rather than DOM it removed and
