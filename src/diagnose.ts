@@ -85,8 +85,7 @@ export function describeMetrics(result: SoakResult): string[] {
 // The counts say a leak exists. This says which kind.
 export function interpret(result: SoakResult): string[] {
   const { trends } = result;
-  // The snapshots either name the cause or they don't. When they do, the guesses
-  // below are not just redundant, they read as hedging next to a certain answer.
+  // A guess reads as hedging next to an answer the snapshots are certain about.
   const guessing = !hasNamedCause(result);
   const nodes = trends.nodes;
   const listeners = trends.listeners;
@@ -164,12 +163,9 @@ const SHOWN = 3;
 const MAX_HOPS = 8;
 
 /**
- * One leak, gathered from the detached classes that share a retainer chain.
- *
- * A drawer that leaks shows up as four classes -- the section, its rows, their
- * spans, its heading -- which is one bug counted four ways. Reading each class's
- * chain from the root, the common prefix ends on the thing that actually leaked;
- * everything past it is that thing's contents.
+ * One leak, gathered from the detached classes that share a retainer chain. A
+ * leaking drawer is four classes and one bug, and reading each chain from the
+ * root, the common prefix ends on the thing that leaked.
  */
 interface Leak {
   /** The leaked object, e.g. `<section class="report-drawer">`. */
@@ -184,8 +180,7 @@ function groupLeaks(detached: SoakDetachedClass[]): Leak[] {
   const walked = detached.filter((d) => d.retainerPath.length);
   const leaks: Leak[] = [];
 
-  // A class whose chain runs through another class's leaked object is that
-  // object's contents, so it is folded into the same finding.
+  // A chain running through another class's leaked object is that object's contents.
   const roots = walked.filter(
     (candidate) =>
       !walked.some(
@@ -234,10 +229,7 @@ function readChain(path: SoakRetainerHop[]): Culprit {
     out.fn = closure.node.slice('closure '.length);
     if (closure.edge?.type === 'context') out.variable = closure.edge.name;
 
-    // Whatever the captured variable turns out to be. When it is the leaked
-    // object there is nothing in between; when it is a collection, that
-    // collection is the thing that keeps growing. Anything else in between has
-    // no name worth putting in a sentence, so it stays in the chain only.
+    // Only a collection is worth naming in a sentence; anything else stays in the chain.
     const next = path[closureAt + 1]?.node;
     if (next && next !== path.at(-1)?.node && next in COLLECTIONS) out.container = next;
   }
@@ -251,8 +243,7 @@ function readChain(path: SoakRetainerHop[]): Culprit {
   if (path.some((hop) => hop.node === PENDING_TIMER)) out.anchor = 'timer';
   else if (listenerAt >= 0) {
     out.anchor = 'listener';
-    // The hop above the listener is what it is registered on. Saying "on window"
-    // for a listener on a container element would send a reader to the wrong call.
+    // The hop above the listener is what it is registered on, which is not always window.
     const target = path[listenerAt - 1];
     if (target) out.listenerTarget = target.node === 'Window' ? 'window' : target.node;
   } else if (out.container) out.anchor = 'container';
@@ -266,8 +257,7 @@ const PENDING_TIMER = 'a pending timer';
 /** `closure onResize` reads as code, and `Window` is spelled the way it is typed. */
 function hopLabel(hop: SoakRetainerHop, first: boolean): string {
   if (hop.node.startsWith('closure ')) return `${hop.node.slice('closure '.length)}()`;
-  // A property hanging off a global is the one edge name worth spelling out: when
-  // a leak is anchored there, that name is what a reader searches for.
+  // A property off a global is the one edge name a reader would search for.
   if (hop.node === 'Window') {
     return first && hop.edge?.type === 'property' ? `window.${hop.edge.name}` : 'window';
   }
@@ -276,9 +266,8 @@ function hopLabel(hop: SoakRetainerHop, first: boolean): string {
 
 function chainLine(path: SoakRetainerHop[]): string {
   const labels = path.map((hop, i) => hopLabel(hop, i === 0));
-  // Elided here rather than in the chain itself, because `groupLeaks` matches one
-  // chain against another by their hops and a truncated pair stops folding, which
-  // reports one bug several times over.
+  // Not elided in the data: `groupLeaks` matches chains hop by hop, and a
+  // truncated pair stops folding.
   const shown =
     labels.length <= MAX_HOPS
       ? labels
@@ -308,25 +297,13 @@ const COLLECTIONS: Record<string, string> = { Array: 'an array', Map: 'a map', S
 /** The sentence a reader acts on. The chain underneath it is the evidence. */
 function describeLeak(leak: Leak, result: SoakResult): string[] {
   const { anchor, fn, variable, container, global, listenerTarget } = readChain(leak.path);
-  // Blink names a detached wrapper after its markup, so "element" says what the
-  // angle brackets are. An older snapshot names it `Detached HTMLDivElement`
-  // instead, which already reads as a class and does not want the extra word.
-  //
-  // Nothing about whose element it is. The whole report is about the flow that
-  // was passed to `soak.run`, the markup says which element far better than any
-  // phrase would, and all the snapshots show is that the count went up, not what
-  // created it.
+  // "element" only suits the markup spelling; `Detached HTMLDivElement` already
+  // reads as a class.
   const what = `the ${leak.what}${leak.what.startsWith('<') ? ' element' : ''}`;
   const collection = container ? COLLECTIONS[container] : undefined;
 
-  // Only a timer and a listener need a sentence of their own, because the missing
-  // `clearTimeout` or `removeEventListener` is the fix and the chain cannot say
-  // it. The rest is said once, by the sentence about the code.
-  // A listener in the chain is not by itself a listener that leaked. One
-  // delegated listener, registered once and never removed on purpose, holds a
-  // handler that can close over anything, so it turns up in the chain of a leak
-  // it did not cause. The count says which: it only goes up when the app
-  // registers listeners it never removes.
+  // A delegated listener, never removed on purpose, turns up in the chain of a
+  // leak it did not cause. The count only moves when one is really left behind.
   const listenerLeaked = anchor === 'listener' && result.trends.listeners.total > 0;
 
   const missing =
@@ -338,19 +315,14 @@ function describeLeak(leak: Leak, result: SoakResult): string[] {
 
   let cause: string;
   if (collection) {
-    // The variable is the answer here rather than the function, because it names
-    // the array to go and find. The function stays out of it: a bundler flattens
-    // every module into one scope, so the function V8 attributes that scope to is
-    // often declared in a different file from the variable, and naming it here
-    // would send a reader to the wrong one. It is still in the chain below, where
-    // it reads as a hop rather than as a claim about where the array lives.
+    // The variable, not the function: a bundler flattens modules into one scope,
+    // so V8 often attributes that scope to a function in another file.
     const named = variable ? ` called \`${variable}\`` : '';
     cause = `${collection[0]!.toUpperCase()}${collection.slice(1)}${named} keeps growing, and`
       + ` it still references ${what}.`;
   } else if (fn) {
-    // No variable name here. When the captured variable is the leaked object, its
-    // name is the local one for something the sentence already describes better,
-    // and a name like `root` or `state` reads as a term the reader has to look up.
+    // No variable name: when it is the leaked object, `root` or `state` is a term
+    // the reader has to look up for something already described.
     cause = `${missing ? `Its callback \`${fn}\`` : `\`${fn}\``} still references ${what}.`;
   } else if (global) {
     cause = `Something on \`${global}\` still references ${what}.`;
@@ -358,8 +330,7 @@ function describeLeak(leak: Leak, result: SoakResult): string[] {
     cause = `Something still references ${what}.`;
   }
 
-  // No count and no rate. The box above has both, and `interpret` says the rate
-  // again in words, so a third telling is the one that reads as padding.
+  // No count and no rate: the box has both, and `interpret` says the rate again.
   return [...sentence(`${missing}${cause}`), '', `  ${chainLine(leak.path)}`];
 }
 
@@ -395,8 +366,7 @@ export function describeDiagnosis(result: SoakResult): string[] {
 
   if (!leaks.length && diagnosis.detached.length) {
     // Detached classes grew but no chain reached a root, so the counts are all
-    // there is. Saying nothing came off the page here would be untrue, and it is
-    // the one thing the snapshot is certain about.
+    // there is. The heap-only wording below would be untrue here.
     const classes = diagnosis.detached
       .slice(0, SHOWN)
       .map((d) => `${d.className.replace('Detached ', '')} ${formatSigned(d.delta)}`)
@@ -408,8 +378,7 @@ export function describeDiagnosis(result: SoakResult): string[] {
       ),
     );
   } else if (!leaks.length && diagnosis.growth.length) {
-    // Nothing detached means the leak never reached the page, so the growing JS
-    // names are all there is to go on.
+    // Never reached the page, so the growing JS names are all there is.
     lines.push(
       ...sentence(
         'Nothing came off the page, so this is data the app keeps rather than DOM it removed' +

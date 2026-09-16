@@ -15,13 +15,10 @@
  * node ordinal into a slice of the edge array. An edge's `to_node` is an offset
  * into `nodes` rather than an ordinal, so it divides back by the field count.
  *
- * This module is deliberately free of `node:fs` and of anything soak-specific.
- * It takes a string and answers questions about the graph, which keeps the door
- * open for a streaming reader to replace `parseHeapSnapshot` later without the
- * rest of the code noticing.
+ * No `node:fs` and nothing soak-specific here, so a streaming reader can replace
+ * `parseHeapSnapshot` later without the rest of the code noticing.
  */
 
-/** The node types V8 emits, as strings rather than the indexes stored per node. */
 export type HeapNodeType =
   | 'hidden'
   | 'array'
@@ -65,7 +62,6 @@ export interface RawHeapSnapshot {
   strings: string[];
 }
 
-/** One edge, resolved to the names a reader can use. */
 export interface HeapEdge {
   type: HeapEdgeType;
   /** The property, context variable or element index the edge is stored under. */
@@ -74,11 +70,7 @@ export interface HeapEdge {
   to: number;
 }
 
-/**
- * One hop of a retainer chain. `node` holds the node from the step before it,
- * and `edge` is the edge it holds it by. The first step is the leaked object
- * itself, so its `edge` is null.
- */
+/** One hop back up a retainer chain. The first step is the leaked object itself. */
 export interface RetainerStep {
   node: number;
   edge: { type: HeapEdgeType; name: string } | null;
@@ -231,7 +223,6 @@ export class HeapSnapshot {
     return out;
   }
 
-  /** Every node holding `node`, with the edge it holds it by. */
   retainersOf(node: number): Array<{ from: number; type: HeapEdgeType; name: string }> {
     this.buildRetainers();
     const first = this.retainerFirst!;
@@ -243,11 +234,7 @@ export class HeapSnapshot {
     return out;
   }
 
-  /**
-   * Counting sort of every edge by the node it points at, which is the reverse
-   * index the retainer walk needs. Two passes and three typed arrays, rather
-   * than a map of arrays that would allocate once per node.
-   */
+  /** Counting sort of every edge by its target, in typed arrays rather than a map. */
   private buildRetainers(): void {
     if (this.retainerFirst) return;
 
@@ -280,12 +267,9 @@ export class HeapSnapshot {
   }
 
   /**
-   * Shortest chain of holders from `node` back to the root, breadth first over
-   * the reverse edges. Weak edges are skipped: they do not keep anything alive,
-   * so a path through one would name a retainer that is not retaining.
-   *
-   * `skipRetainer` drops holders that are bookkeeping rather than an answer.
-   * Returns leaf first, or null when nothing reaches the root.
+   * Shortest chain back to the root, leaf first, or null if nothing reaches it.
+   * Weak edges are skipped, since a path through one names a retainer that is
+   * not retaining.
    */
   retainerPath(
     node: number,
@@ -327,8 +311,7 @@ export class HeapSnapshot {
 
     if (!found) return null;
 
-    // parent[] runs holder → held, so walking it from the root and reversing
-    // gives the chain leaf first.
+    // parent[] runs holder → held, so walk from the root and reverse.
     const steps: RetainerStep[] = [];
     for (let current = ROOT_NODE; ; current = parent[current]!) {
       const edge = viaEdge[current]!;
@@ -342,21 +325,12 @@ export class HeapSnapshot {
   }
 }
 
-/**
- * One `JSON.parse` over the whole file. A snapshot of a real app runs to
- * hundreds of megabytes, so this is the piece to replace with a streaming
- * reader; nothing outside this module depends on the string being whole.
- */
+/** One `JSON.parse`, and the piece a streaming reader would replace. */
 export function parseHeapSnapshot(json: string): HeapSnapshot {
   return new HeapSnapshot(JSON.parse(json) as RawHeapSnapshot);
 }
 
-/**
- * A tag name out of the markup Blink uses to name a DOM wrapper, so that
- * `<div class="report-row">` and `<div class="report-footer" id="x">` count as
- * one class. The attributes are per-instance and would split the count into one
- * entry per element, which is the opposite of what a class list is for.
- */
+/** Tag only, so `<div class="a">` and `<div id="b">` count as one class. */
 function elementClass(name: string): string {
   const tag = /^<([a-zA-Z][\w-]*)/.exec(name);
   return tag ? `<${tag[1]!.toLowerCase()}>` : name || '(unnamed)';
@@ -368,13 +342,9 @@ function withoutEntryCount(name: string): string {
 }
 
 /**
- * The class of a detached DOM wrapper, or null for anything else.
- *
- * Two spellings, because Chromium changed its mind. Current versions set the
- * `detachedness` field and name the node after its markup, leaving DevTools to
- * write "Detached" in front of it in the class list. Older ones put the word in
- * the name itself. Both end up as `Detached <div>` or `Detached HTMLDivElement`
- * here, which is the name a reader would search DevTools for.
+ * Two spellings, because Chromium changed its mind: current versions set
+ * `detachedness` and name the node after its markup, older ones put "Detached"
+ * in the name.
  */
 export function detachedClassOf(snapshot: HeapSnapshot, node: number): string | null {
   const name = snapshot.nodeName(node);
