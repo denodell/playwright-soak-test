@@ -68,11 +68,11 @@ test('names the drawer as one leak, and the listener holding it', async ({ page,
   expect(message).toContain('`onResize` points at');
   // The box and the trend line already give the rate, so the sentence does not.
   expect(message).not.toContain('one per pass');
-  // `root` is the local name for something the sentence describes better.
+  // `root` is the variable name for the thing the sentence already describes.
   expect(message).not.toContain('captured `root`');
   expect(message).toContain('window \u2192 EventListener \u2192 onResize()');
   expect(message).not.toContain('Detached <div>');
-  // And it stops guessing at a cause once it has found one.
+  // And it stops guessing at a cause once the snapshots have named one.
   expect(message).not.toContain('Most often a listener stays registered');
 });
 
@@ -204,7 +204,7 @@ test('running out of diagnoseTimeoutMs leaves a note rather than failing the run
     diagnoseTimeoutMs: 1,
   });
 
-  // The run itself is unaffected: the counts are still the counts.
+  // The run itself is unaffected. The counts and the verdict are the same.
   expect(result.leaking).toBe(true);
   expect(result.trends.listeners.total).toBe(PASSES - result.warmup);
 
@@ -282,7 +282,7 @@ test.describe('with diagnosis left alone', () => {
     expect(result.diagnosis).toBeUndefined();
     expect(snapshotsIn(testInfo.outputPath())).toEqual([]);
     expect(message).not.toContain('is still registered');
-    // And the report falls back to guessing, which is all it has.
+    // And with no snapshots to read, the report falls back to guessing.
     expect(message).toContain('Most often a listener stays registered');
   });
 });

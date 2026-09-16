@@ -82,10 +82,10 @@ export function describeMetrics(result: SoakResult): string[] {
   );
 }
 
-// The counts say a leak exists. This says which kind.
+// Reads the shape of each trend and says what kind of leak it looks like.
 export function interpret(result: SoakResult): string[] {
   const { trends } = result;
-  // With a cause from the snapshots, the guesses below only repeat it less well.
+  // When the snapshots have named a cause, there is no need to guess at one below.
   const guessing = !hasNamedCause(result);
   const nodes = trends.nodes;
   const listeners = trends.listeners;
@@ -159,13 +159,13 @@ export function interpret(result: SoakResult): string[] {
 /** How many leaks the report describes. */
 const SHOWN = 3;
 
-/** Hops in a printed chain before the middle is elided. The data keeps them all. */
+/** Longest chain printed before the middle is replaced with an ellipsis. The data keeps every hop. */
 const MAX_HOPS = 8;
 
 /**
  * One leak, gathered from the detached classes that share a retainer chain. A
- * leaking drawer shows up as four classes, so reading each chain from the root,
- * the part they all share ends on the thing that leaked.
+ * leaking drawer shows up as four separate classes. Read each chain from the
+ * root and the part they all share ends on the thing that leaked.
  */
 interface Leak {
   /** The leaked object, e.g. `<section class="report-drawer">`. */
@@ -229,8 +229,8 @@ function readChain(path: SoakRetainerHop[]): Culprit {
     out.fn = closure.node.slice('closure '.length);
     if (closure.edge?.type === 'context') out.variable = closure.edge.name;
 
-    // Only a collection is worth naming in a sentence. Anything else stays in the
-    // chain and out of the prose.
+    // Only a collection is worth naming in the sentence. Anything else is left for
+    // the chain to show.
     const next = path[closureAt + 1]?.node;
     if (next && next !== path.at(-1)?.node && next in COLLECTIONS) out.container = next;
   }
@@ -258,7 +258,7 @@ const PENDING_TIMER = 'a pending timer';
 /** Prints `onResize()` for a closure, and lower-cases `Window`. */
 function hopLabel(hop: SoakRetainerHop, first: boolean): string {
   if (hop.node.startsWith('closure ')) return `${hop.node.slice('closure '.length)}()`;
-  // A property off a global is the one edge name a reader would search for.
+  // A property off a global is the one name you would search your code for.
   if (hop.node === 'Window') {
     return first && hop.edge?.type === 'property' ? `window.${hop.edge.name}` : 'window';
   }
@@ -267,8 +267,8 @@ function hopLabel(hop: SoakRetainerHop, first: boolean): string {
 
 function chainLine(path: SoakRetainerHop[]): string {
   const labels = path.map((hop, i) => hopLabel(hop, i === 0));
-  // Not elided in the data: `groupLeaks` matches chains hop by hop, and a
-  // truncated pair stops folding.
+  // Elided here and not in the data. `groupLeaks` matches chains hop by hop, and
+  // two truncated chains stop matching.
   const shown =
     labels.length <= MAX_HOPS
       ? labels
@@ -276,7 +276,7 @@ function chainLine(path: SoakRetainerHop[]): string {
   return shown.join(' \u2192 ');
 }
 
-/** Wraps to the width the hand-written lines in this file use. */
+/** Wraps to the same width as the fixed lines in this file. */
 function sentence(text: string, width = 88): string[] {
   const lines: string[] = [];
   let current = '';
@@ -296,18 +296,18 @@ const COLLECTIONS: Record<string, string> = { Array: 'an array', Map: 'a map', S
 
 function describeLeak(leak: Leak, result: SoakResult): string[] {
   const { anchor, fn, variable, container, global, listenerTarget } = readChain(leak.path);
-  // Only the markup spelling wants "element" after it. `Detached HTMLDivElement`
-  // is already a class name.
+  // `<div>` reads better as "the <div> element". `Detached HTMLDivElement` is
+  // already a class name and needs nothing after it.
   const what = `the ${leak.what}${leak.what.startsWith('<') ? ' element' : ''}`;
   const collection = container ? COLLECTIONS[container] : undefined;
 
-  // A delegated listener is never removed on purpose, so it turns up in chains
-  // of leaks it did not cause. The count only moves when one is left behind by
+  // A delegated listener is meant to stay registered, so it turns up in chains of
+  // leaks it did not cause. The count only moves when one is left behind by
   // mistake.
   const listenerLeaked = anchor === 'listener' && result.trends.listeners.total > 0;
 
-  // The snapshot sees a timer in the pending store and a listener in the chain.
-  // How they got there is a guess, so the sentence says what is there instead.
+  // The snapshot shows a pending timer or a registered listener. Why it is still
+  // there would be a guess, so the sentence says what was found instead.
   const anchored =
     anchor === 'timer'
       ? 'A timer is still pending. '
@@ -317,14 +317,14 @@ function describeLeak(leak: Leak, result: SoakResult): string[] {
 
   let cause: string;
   if (collection) {
-    // The variable, not the function: a bundler flattens modules into one scope,
-    // so V8 often attributes that scope to a function in another file.
+    // Name the variable, not the function. A bundler flattens modules into one
+    // scope, so V8 often credits that scope to a function from another file.
     const named = variable ? ` called \`${variable}\`` : '';
     cause = `${collection[0]!.toUpperCase()}${collection.slice(1)}${named} keeps growing, and`
       + ` it still references ${what}.`;
   } else if (fn) {
-    // No variable name here. When the variable is the leaked object, `root` or
-    // `state` adds nothing the rest of the sentence has not said.
+    // No variable name here. When the variable is the leaked object itself, `root`
+    // or `state` adds nothing to the sentence.
     cause = anchored
       ? `Its callback \`${fn}\` points at ${what}.`
       : `\`${fn}\` still references ${what}.`;
@@ -334,7 +334,7 @@ function describeLeak(leak: Leak, result: SoakResult): string[] {
     cause = `Something still references ${what}.`;
   }
 
-  // No count and no rate: the box has both, and `interpret` says the rate again.
+  // No count and no rate. The box above has both, and `interpret` repeats the rate.
   return [...sentence(`${anchored}${cause}`), '', `  ${chainLine(leak.path)}`];
 }
 
@@ -362,8 +362,8 @@ export function describeDiagnosis(result: SoakResult): string[] {
   const growth = diagnosis.growth.map((g) => `${g.name} ${formatSigned(g.delta)}`).join(', ');
 
   if (!leaks.length && diagnosis.detached.length) {
-    // Detached classes grew but no chain reached a root, so the counts are all
-    // there is. The heap-only wording below would be untrue here.
+    // Detached classes grew, but no chain reached a root, so the counts are all we
+    // have. The heap-only wording below would be wrong here.
     const classes = diagnosis.detached
       .slice(0, SHOWN)
       .map((d) => `${d.className.replace('Detached ', '')} ${formatSigned(d.delta)}`)
@@ -375,7 +375,7 @@ export function describeDiagnosis(result: SoakResult): string[] {
       ),
     );
   } else if (!leaks.length && diagnosis.growth.length) {
-    // The leak never reached the page, so only the JS names are left to report.
+    // Nothing came off the page, so the JS names are all there is to report.
     lines.push(
       ...sentence(
         'Nothing came off the page, so this is data the app keeps rather than DOM it removed' +
@@ -392,7 +392,7 @@ export function describeDiagnosis(result: SoakResult): string[] {
   return lines;
 }
 
-/** Once this is true, the report can stop guessing at a cause. */
+/** True when the snapshots found a cause, which is when `interpret` stops guessing. */
 export function hasNamedCause(result: SoakResult): boolean {
   return groupLeaks(result.diagnosis?.detached ?? []).length > 0;
 }

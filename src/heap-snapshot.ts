@@ -10,10 +10,10 @@
  *   edges                       every edge's fields, end to end
  *   strings                     names, referenced by index from nodes and edges
  *
- * A node's edges are the next `edge_count` entries after the ones belonging to
- * every node before it, so a prefix sum over the edge counts is what turns a
- * node ordinal into a slice of the edge array. An edge's `to_node` is an offset
- * into `nodes` rather than an ordinal, so it divides back by the field count.
+ * Edges are stored in node order, so a node's edges start after the edges of
+ * every node before it. Adding up the edge counts once up front gives the start
+ * of each node's run. An edge's `to_node` is an offset into `nodes`, so divide
+ * it by the field count to get a node number back.
  */
 
 export type HeapNodeType =
@@ -332,15 +332,14 @@ function elementClass(name: string): string {
   return tag ? `<${tag[1]!.toLowerCase()}>` : name || '(unnamed)';
 }
 
-/** Some groupings carry a count that moves between snapshots. */
+/** DevTools adds "/ 3 entries" to some names, and the number changes run to run. */
 function withoutEntryCount(name: string): string {
   return name.replace(/ \/ \d+ entries$/, '');
 }
 
 /**
- * Two spellings, because Chromium changed its mind: current versions set
- * `detachedness` and name the node after its markup, older ones put "Detached"
- * in the name.
+ * Chromium marks detached nodes two ways. Current versions set `detachedness`
+ * and name the node after its markup. Older ones put "Detached" in the name.
  */
 export function detachedClassOf(snapshot: HeapSnapshot, node: number): string | null {
   const name = snapshot.nodeName(node);

@@ -182,8 +182,8 @@ async function executeSoak(
   }
 
   const baseline = await read();
-  // The outcome is not known yet, so the baseline snapshot is taken on every run
-  // that has diagnosis on at all and dropped again at the end if it goes unused.
+  // The outcome is not known yet, so take the baseline snapshot on any run with
+  // diagnosis on, and drop it at the end if it goes unused.
   const heap =
     opts.diagnose === 'off'
       ? null
@@ -194,9 +194,9 @@ async function executeSoak(
       });
   await heap?.captureBaseline();
 
-  // A flow that throws leaves the run without a verdict, and the baseline
-  // snapshot is already on disk by then, which on a real app is hundreds of
-  // megabytes left in your output directory.
+  // A flow that throws leaves the run without a verdict, and by then the baseline
+  // snapshot is on disk. On a real app that is hundreds of megabytes left behind
+  // in your output directory.
   let settled = false;
   try {
 
@@ -258,9 +258,9 @@ async function executeSoak(
 
     let diagnosis: SoakDiagnosis | undefined;
     if (heap) {
-      // Nothing between the last reading and here touches the page, so waiting
-      // for the verdict costs the second snapshot nothing and saves taking one at
-      // all on a run that passes. It forces a collection, so it cannot come earlier.
+      // Nothing between the last reading and here touches the page, so waiting for
+      // the verdict costs nothing and saves taking a second snapshot at all on a run
+      // that passes. Taking one forces a collection, so it cannot come earlier.
       const wanted = opts.diagnose === 'always' || failures.length > 0;
       if (wanted) {
         await heap.captureAfter();

@@ -239,9 +239,9 @@ test.describe('oversizeReason', () => {
   });
 
   test('a pair too big to parse says so, and says the files are still there', () => {
-    // Parsing costs around four times the file size in heap and the diff holds
-    // two, so past this the worker runs out of memory and takes the whole test
-    // run with it. Not diagnosing is the better failure.
+    // Parsing takes around four times the file size in heap and the diff holds
+    // two, so past this the worker runs out of memory and takes the whole test run
+    // with it. Better to skip the diagnosis than to lose the run.
     const reason = oversizeReason([10 * 1024 * 1024, 640 * 1024 * 1024]);
     expect(reason).toContain('640MB');
     expect(reason).toContain('200MB');

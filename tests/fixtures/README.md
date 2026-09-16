@@ -14,9 +14,9 @@ Window → EventListener → closure handleClick → system / Context → el →
 WeakHolder → <div class="card">, by a weak edge
 ```
 
-Both `<div class="card">` and `<span>` are marked detached. The weak edge is why
-`WeakHolder` is in there. It is the shortest way back to the root from the div,
-and the walk has to refuse it, since a weak reference keeps nothing alive.
+Both `<div class="card">` and `<span>` are marked detached. `WeakHolder` is there
+for the weak edge. It is the shortest way back to the root from the div, and the
+walk has to ignore it, since a weak reference keeps nothing alive.
 
 `pending-timer.heapsnapshot` is a timer still sitting in the injected clock:
 

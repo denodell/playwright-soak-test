@@ -107,8 +107,8 @@ export interface SoakFailure {
 
 /**
  * One link in a retainer chain, with the name of the slot holding the next one.
- * These arrive structured rather than pre-formatted, since the reporter reads the
- * result back out of a JSON attachment and regroups and relabels it from there.
+ * Structured rather than pre-formatted, because the reporter reads the result
+ * back out of a JSON attachment and regroups and relabels it from there.
  */
 export interface SoakRetainerHop {
   /** The retainer itself, such as `window`, `EventListener` or `closure onResize`. */

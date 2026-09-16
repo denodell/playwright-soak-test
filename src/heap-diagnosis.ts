@@ -1,4 +1,4 @@
-// Diffs two heap snapshots by node name, so "+7,800 nodes" turns into a class
+// Diffs two heap snapshots by node name, to turn "+7,800 nodes" into a class
 // name and the chain of things still pointing at it.
 
 import fs from 'node:fs';
@@ -20,31 +20,31 @@ import type {
   SoakRetainerHop,
 } from './types.js';
 
-// One leak usually spans several classes, and grouping them needs a path for
-// each, so this is higher than the three the report prints.
+// One leak usually spans several classes, and each needs a path before they can
+// be grouped, so walk more than the three the report prints.
 const RETAINER_PATHS = 12;
 
 const GROWTH_NAMES = 5;
 
-/** One more of something is a coincidence, so growth starts at two. */
+/** A growth of one is too easy to hit by chance. */
 const GROWTH_FLOOR = 2;
 
-// Parsing a snapshot costs about four times the file size in heap, and the diff
-// holds two of them, so a large enough pair runs the Playwright worker out of
-// memory. That kills the whole test run rather than the diagnosis, which is much
-// worse than not diagnosing, so anything over this is left alone with a note.
+// Parsing a snapshot takes roughly four times the file size in heap, and the
+// diff holds two at once. A big enough pair would run the Playwright worker out
+// of memory and take the whole test run with it, so past this size the snapshots
+// are left unparsed and the result carries a note.
 const MAX_SNAPSHOT_BYTES = 200 * 1024 * 1024;
 
-// `installSoakClock` keeps pending timers in the injected clock's own objects,
-// so a leaked timer is reached through those rather than anything your app
-// wrote. Matched by name, so this needs updating if `page.clock` changes.
+// `installSoakClock` keeps pending timers inside the injected clock, so the path
+// to a leaked timer runs through Playwright's objects rather than your app's.
+// Matched by name, so this needs updating if `page.clock` changes.
 const CLOCK_ANCHOR = '__pwClock';
 const PENDING_TIMER = 'a pending timer';
 
 const BASELINE_FILE = 'baseline';
 const AFTER_FILE = 'after';
 
-/** V8's own objects grow and shrink on their own, so they are left out. */
+/** The name to count a node under, or null for V8's own objects, which come and go. */
 export function growthNameOf(snapshot: HeapSnapshot, node: number): string | null {
   const type = snapshot.nodeType(node);
   const name = snapshot.nodeName(node);
@@ -79,16 +79,16 @@ function countNames(snapshot: HeapSnapshot): NameCounts {
   return { detached, growth };
 }
 
-// Blink puts these between a listener and the function it calls, and every
-// registration goes through the same ones, so they pad the chain without naming
-// anything in your code. `EventListener` stays, because it says the reference
-// came from a listener.
+// Blink puts these between a listener and the function it calls. Every
+// registration goes through the same ones, so they lengthen the chain without
+// naming anything in your code. `EventListener` stays: it tells you the
+// reference came from a listener.
 const PLUMBING = new Set(['InternalNode', 'V8EventListener', 'Detached InternalNode']);
 
 /**
- * Contexts, backing stores and the root buckets. These are real links in the
- * chain, but there is nothing in your code to change at any of them, so they
- * collapse and hand their edge name to the node above.
+ * Contexts, backing stores and the root buckets. Real links in the chain, but
+ * there is nothing in your code to change at any of them, so they collapse and
+ * give their edge name to the node above.
  */
 function isBookkeeping(snapshot: HeapSnapshot, node: number): boolean {
   if (node === ROOT_NODE) return true;
@@ -117,8 +117,8 @@ function describeNode(snapshot: HeapSnapshot, node: number): string {
 }
 
 /**
- * Root first and the leaked object last. A collapsed hop hands its edge name to
- * the node above it, so a closure keeps the name of the variable it captured.
+ * Root first, leaked object last. A collapsed hop gives its edge name to the node
+ * above it, so a closure keeps the name of the variable it captured.
  */
 export function buildRetainerPath(
   snapshot: HeapSnapshot,
@@ -137,8 +137,8 @@ export function buildRetainerPath(
     }
 
     const name = describeNode(snapshot, step.node);
-    // A DOM wrapper and the JS object behind it carry one name between them, so
-    // the chain would otherwise read `Window, Window`.
+    // A DOM wrapper and the JS object behind it share a name, so the chain would
+    // otherwise read `Window, Window`.
     if (name === previous) {
       carried = null;
       continue;
@@ -182,7 +182,7 @@ function isAppCode(node: string): boolean {
   return node.startsWith('closure ') || node.startsWith('<');
 }
 
-/** Keeps the edge only when its name appears in your source too. */
+/** Keeps the edge only when its name is something you would find in your source. */
 function namedEdge(
   snapshot: HeapSnapshot,
   holder: number,
@@ -200,7 +200,7 @@ function namedEdge(
   return undefined;
 }
 
-/** One that wasn't in the baseline, so the path leads to something this run made. */
+/** Prefers a node that wasn't in the baseline, so the path leads to something this run made. */
 function representativeNode(
   after: HeapSnapshot,
   baselineIds: Set<number> | undefined,
@@ -236,8 +236,8 @@ export function pathForClass(
   const node = representativeNode(after, baselineIds.get(className), className);
   if (node === null) return [];
 
-  // DevTools' grouping node is skipped on the first attempt, since the path
-  // through it is always the shortest, and it leads to DevTools, not your code.
+  // Skip DevTools' grouping node on the first try. The path through it is always
+  // the shortest, and it leads to DevTools rather than to your code.
   const steps =
     after.retainerPath(node, { skipRetainer: (holder) => isDetachedGrouping(after, holder) }) ??
     after.retainerPath(node);
@@ -293,8 +293,8 @@ export function diffSnapshots(
 
 function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
-  // The loser of the race carries on, so its rejection is caught here. Otherwise
-  // it turns up unhandled later.
+  // Whichever promise loses the race keeps running, so catch its rejection here.
+  // Otherwise it surfaces as an unhandled rejection later.
   work.catch(() => { });
   const guard = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`${what} ran past diagnoseTimeoutMs`)), ms);
@@ -302,14 +302,14 @@ function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> 
   return Promise.race([work, guard]).finally(() => clearTimeout(timer));
 }
 
-/** Written as the chunks arrive, since a real app's snapshot runs to hundreds of megabytes. */
+/** Streamed to disk as the chunks arrive. A real app's snapshot runs to hundreds of megabytes. */
 async function captureSnapshot(cdp: CDPSession, file: string, timeoutMs: number): Promise<void> {
   await cdp.send('HeapProfiler.enable');
   await cdp.send('HeapProfiler.collectGarbage');
 
   const stream = fs.createWriteStream(file);
-  // A write can fail on a full disk or into an output directory that has gone
-  // away, and an unhandled `error` on a stream is an uncaughtException, which
+  // A write can fail on a full disk, or into an output directory that has gone
+  // away. An unhandled `error` on a stream becomes an uncaughtException, which
   // takes the Playwright worker down instead of leaving you a note.
   const failures: Error[] = [];
   stream.on('error', (error: Error) => void failures.push(error));
@@ -339,9 +339,9 @@ function slug(label: string): string {
 }
 
 /**
- * Two runs in one test share an output directory, and a label defaults to the
- * test title, so without this the second run writes over the first and can then
- * delete files the first result still points at.
+ * Two runs in one test share an output directory, and the label defaults to the
+ * test title. Without this the second run overwrites the first, then deletes
+ * files the first result still points at.
  */
 const taken = new Map<string, number>();
 
@@ -353,7 +353,7 @@ function uniqueStem(dir: string, label: string): string {
   return seen === 1 ? stem : `${stem}-${seen}`;
 }
 
-/** Why the pair cannot be parsed, when it is too big for the worker's memory. */
+/** Why the pair was left unparsed, or null when they are small enough to read. */
 export function oversizeReason(bytes: number[]): string | null {
   const biggest = Math.max(...bytes);
   if (biggest <= MAX_SNAPSHOT_BYTES) return null;
@@ -371,15 +371,15 @@ function reason(error: unknown): string {
 
 export interface HeapDiagnosticsOptions {
   label: string;
-  /** Budget for the snapshot work alone, since the passes in between don't spend it. */
+  /** Budget for the snapshot work only. The passes in between don't spend it. */
   timeoutMs: number;
   testInfo?: TestInfo;
 }
 
 /**
- * The baseline snapshot has to be taken before anyone knows whether the run
- * fails, so it goes ahead whenever diagnosis is on at all and is thrown away
- * again if it turns out not to be wanted.
+ * The baseline snapshot has to be taken before the outcome of the run is known,
+ * so it is taken whenever diagnosis is on and thrown away again if it turns out
+ * not to be needed.
  */
 export class HeapDiagnostics {
   private readonly cdp: CDPSession;
@@ -455,7 +455,7 @@ export class HeapDiagnostics {
       }
 
       // `JSON.parse` is synchronous and can't be interrupted, so the budget is
-      // checked between the steps instead. Everything but one parse is bounded.
+      // checked between steps instead. Everything except a single parse is bounded.
       const deadline = Date.now() + budget;
       const outOfTime = (): boolean => Date.now() > deadline;
       const guard = (step: string): void => {
