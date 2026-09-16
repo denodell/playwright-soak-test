@@ -5,7 +5,7 @@ import { SoakLeakError } from '../../src/soak.js';
 
 const PASSES = 25;
 
-test.use({ soakOptions: { clock: false, passes: PASSES } });
+test.use({ soakOptions: { clock: false, passes: PASSES, diagnose: 'on-failure' } });
 
 function snapshotsIn(dir: string): string[] {
   if (!fs.existsSync(dir)) return [];
@@ -257,4 +257,32 @@ test('a flow that throws does not leave its baseline snapshot behind', async ({
 
   expect(thrown).toBe(boom);
   expect(snapshotsIn(testInfo.outputPath())).toEqual([]);
+});
+
+test.describe('with diagnosis left alone', () => {
+  test.use({ soakOptions: { clock: false, passes: PASSES } });
+
+  test('a failing run says nothing extra until diagnosis is asked for', async ({
+    page,
+    soak,
+  }, testInfo) => {
+    await page.goto('/leak/');
+    await page.waitForFunction(() => window.__drawer !== undefined);
+
+    const error = await soak.run(() => openAndCloseDrawer(page)).then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(SoakLeakError);
+    const { result, message } = error as SoakLeakError;
+
+    // Off is the default, so an existing suite upgrading to this version takes no
+    // snapshots and reads exactly as it did before.
+    expect(result.diagnosis).toBeUndefined();
+    expect(snapshotsIn(testInfo.outputPath())).toEqual([]);
+    expect(message).not.toContain('is still registered');
+    // And the report falls back to guessing, which is all it has.
+    expect(message).toContain('Most often a listener stays registered');
+  });
 });

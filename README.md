@@ -112,7 +112,7 @@ Defaults go in `use: { soakOptions }` in the config, or at the top of a spec wit
 | `tracePasses` | `25` | Passes read one at a time at the start of the run. |
 | `sampleEvery` | derived | Read every Nth pass after that. |
 | `label` | test title | Name used in the report and the reporter. |
-| `diagnose` | `'on-failure'` | Heap snapshots either side of the run, diffed to name what leaked. `'always'` reports on a clean run too, `'off'` skips the snapshots entirely. See [Diagnosis](#diagnosis). |
+| `diagnose` | `'off'` | Heap snapshots either side of the run, diffed to name what leaked. `'on-failure'` does it when a run fails, `'always'` on a clean run too. Off by default, since a snapshot of a real app takes a few seconds. See [Diagnosis](#diagnosis). |
 | `diagnoseTimeoutMs` | `60000` | How long the snapshot work has before the diagnosis is dropped. Going over leaves a note on the result and never fails the run. |
 
 ## Virtual clock
@@ -183,7 +183,15 @@ The reporter prints a box per test and a table at the end of the run. On GitHub 
 
 ## Diagnosis
 
-A count going up tells you something leaked. It doesn't tell you what, so a failing run also takes a heap snapshot at the baseline pass and another at the end, and works out what leaked from the difference. That prints under the box:
+A count going up tells you something leaked. It doesn't tell you what, so a run can also take a heap snapshot at the baseline pass and another at the end, and work out what leaked from the difference.
+
+A snapshot of a real app is hundreds of megabytes and takes a few seconds, so this is off until you ask for it:
+
+```ts
+test.use({ soakOptions: { diagnose: 'on-failure' } });
+```
+
+A failing run then prints this under the box:
 
 ```
   A listener on window is still registered. Its callback `onResize` points at the
@@ -227,13 +235,9 @@ Both snapshots are attached to the test result, so you can open the report and d
 npx playwright show-report
 ```
 
-A snapshot of a real app is hundreds of megabytes and takes a few seconds, so diagnosis is worth turning off when a clean run needs to be quick:
+`'always'` goes further and reports on a clean run too, which shows what a flow allocates before anything is wrong. Either way, `'on-failure'` still takes the baseline snapshot on every run, since nothing knows the outcome that early, and deletes it again when the run passes.
 
-```ts
-test.use({ soakOptions: { diagnose: 'off' } });
-```
-
-`'always'` reports on a clean run too, which shows what a flow allocates before anything is wrong. If the snapshot work runs past `diagnoseTimeoutMs` the diagnosis is dropped, and the run still passes or fails on its own counts.
+If the snapshot work runs past `diagnoseTimeoutMs` the diagnosis is dropped, and the run still passes or fails on its own counts.
 
 ## API
 

@@ -13,7 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `growth`, the JS constructors and named closures that grew most
 - Detached classes that share a chain reported as one leak, not one finding per class
 - Retainer chains through the virtual clock reported as `a pending timer`
-- `diagnose` option: `'on-failure'` (default), `'always'` or `'off'`
+- `diagnose` option, off by default: `'on-failure'` takes snapshots when a run fails, `'always'` on a clean run too
 - `diagnoseTimeoutMs` option, default 60,000, after which the diagnosis is dropped with a note
 - Snapshots over 200MB left unparsed with a note, since two of them would run the worker out of memory
 - Both snapshots attached as `soak-heap-baseline` and `soak-heap-after`
@@ -23,8 +23,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - The report stops guessing at a cause once the snapshots have named one
-- A failing run takes two heap snapshots and a passing run takes one, so runs are slower than in 0.1.0
-- `diagnose: 'off'` skips the snapshots, which puts that cost back where it was
+
+Diagnosis is off by default, so a suite upgrading from 0.1.0 runs exactly as it did. Turning it on costs two heap snapshots on a failing run and one on a passing run.
 
 ## [0.1.0] - 2026-08-05
 

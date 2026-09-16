@@ -37,8 +37,10 @@ export interface SoakClockOptions {
 }
 
 /**
- * When a run takes heap snapshots. The baseline one has to be taken before the
- * outcome is known, so `'on-failure'` still takes it and throws it away again.
+ * When a run takes heap snapshots. Off by default, because a snapshot of a real
+ * app takes seconds and runs to hundreds of megabytes. The baseline one has to be
+ * taken before the outcome is known, so `'on-failure'` still takes it on a run
+ * that goes on to pass, and throws it away again.
  */
 export type SoakDiagnoseMode = 'on-failure' | 'always' | 'off';
 
@@ -80,7 +82,7 @@ export interface SoakOptions {
   label?: string;
   /**
    * Heap snapshots either side of the run, diffed to name what leaked and what
-   * still references it. Default `'on-failure'`.
+   * still references it. Default `'off'`.
    */
   diagnose?: SoakDiagnoseMode;
   /**
