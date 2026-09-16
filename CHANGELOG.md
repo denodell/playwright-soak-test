@@ -6,25 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- `diagnosis` on `SoakResult`: what a failing run leaked, and what is holding it
-- Heap snapshots taken at the baseline pass and after the final reading, diffed by node name
+- `diagnosis` on `SoakResult`, naming what leaked and what still references it
+- Heap snapshots at the baseline pass and after the final reading, diffed by node name
 - `detached`, every class of detached DOM node whose count went up, largest first
-- `retainerPath`, the chain of holders from the root down to the leaked object, as `{ node, edge }` hops, with internal hops collapsed and a captured variable's name kept against the closure that captured it
-- Detached classes that share a chain reported as one leak rather than one finding per class, named in a sentence with the chain underneath as evidence
-- Retainer chains through the virtual clock reported as `a pending timer`, so a leak is never blamed on the plumbing this library installed
-- `SoakRetainerHop`
-- `growth`, the JS constructors and named closures that grew most, so a leak that never touches the DOM is still named
+- `retainerPath`, the chain of retainers from the root to the leaked object, as `{ node, edge }` hops
+- `growth`, the JS constructors and named closures that grew most
+- Detached classes that share a chain reported as one leak, not one finding per class
+- Retainer chains through the virtual clock reported as `a pending timer`
 - `diagnose` option: `'on-failure'` (default), `'always'` or `'off'`
-- `diagnoseTimeoutMs` option, default 60,000. Running past it abandons the diagnosis with a note rather than failing the test
-- Both snapshots attached to the test result as `soak-heap-baseline` and `soak-heap-after`, ready to drag into DevTools → Memory
+- `diagnoseTimeoutMs` option, default 60,000, leaving a note rather than failing the test
+- Both snapshots attached as `soak-heap-baseline` and `soak-heap-after`
 - The diagnosis printed under the reporter's box, and in the `SoakLeakError` message
 - Types `SoakDiagnosis`, `SoakDiagnoseMode`, `SoakDetachedClass`, `SoakRetainerHop` and `SoakGrowth`
 
 ### Changed
 
-- The report stops guessing at a cause once the snapshots have named one, so a failing run no longer says the same thing twice. The counts and the per-pass rate stay in the box and the trend line, and the diagnosis sentence does not repeat them
-- A passing run takes one heap snapshot rather than two: the second waits until the thresholds have been checked, since nothing between the last reading and the verdict touches the page
-- A run with diagnosis on takes two heap snapshots, which adds to how long it takes. Passing runs print and return exactly what they did before, and `diagnose: 'off'` restores the old cost.
+- The report stops guessing at a cause once the snapshots have named one
+- A failing run takes two heap snapshots and a passing run takes one, which adds to how long a run takes
+- `diagnose: 'off'` restores the cost of 0.1.0
 
 ## [0.1.0] - 2026-08-05
 

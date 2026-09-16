@@ -192,7 +192,7 @@ The counts tell you a leak exists. They can't tell you what it is, because `Node
     window → EventListener → onResize() → <section class="report-drawer">
 ```
 
-The sentence is the answer, and the chain is the evidence for it, read left to right as "keeps alive". `onResize` is the function to go and look at, and `window` is what keeps the whole thing reachable. The counts stay in the box above, so the sentence does not repeat them.
+`onResize` is the function to go and look at, and `window` is what keeps the whole thing reachable. The chain under the sentence is the path the snapshot walked to get there, read left to right as "keeps alive". The counts stay in the box above, so the sentence does not repeat them.
 
 A leak with a collection in the middle of it names the collection instead, because that is the thing to go and find. The function that closes over it stays in the chain rather than the sentence: a bundler flattens every module into one scope, so the function the snapshot attributes that scope to is often declared in a different file from the variable.
 
@@ -212,17 +212,17 @@ A timer that was never cleared reads as a timer, rather than as the machinery th
     a pending timer → tick() → <section class="live-tile">
 ```
 
-### One bug, reported once
+### Grouping
 
 A leaking drawer shows up in the snapshot as four detached classes: the `<section>`, the `<div>` rows inside it, their `<span>`s, and the `<h2>`. That is one bug counted four ways, and reporting it four times buries the answer under three copies of the same chain.
 
-So the chains are grouped. Read from the root, they share a prefix, and that prefix ends on the thing that actually leaked, and everything past it is that thing's contents. The report names the container and leaves the contents out, because nobody fixes `<span> +2,340` — they fix `onResize`. The counts for every class are still on the result if you want them.
+So the chains are grouped. Read from the root, they share a prefix, and that prefix ends on the thing that actually leaked. Everything past it is that thing's contents. The report names the container and leaves the contents out, since the thing to fix is `onResize` rather than `<span> +2,340`. The counts for every class are still on the result if you want them.
 
 Detached classes are grouped by tag rather than by the full markup, so `<div class="row-1">` and `<div class="row-2">` count as one `Detached <div>`. The markup is still there on the chain, where it points at the element itself.
 
-### What gets reported
+### Diagnosis fields
 
-| Field | What it holds |
+| Field | What it contains |
 | --- | --- |
 | `detached` | Every class of detached DOM node whose count went up, largest first. `retainerPath` is the chain of retainers, root first and the leaked object last, as `{ node, edge }` hops. |
 | `growth` | The JS names that grew most: constructors, and closures named for their function. This is what catches a leak that never touches the DOM. |
