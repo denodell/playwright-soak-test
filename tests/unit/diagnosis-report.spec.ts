@@ -110,7 +110,7 @@ test('detached classes with no walkable chain are reported, not called clean', (
 
   expect(lines).toContain('Elements are coming off the page and staying in memory');
   expect(lines).toContain('<div> +240');
-  // The page plainly did shed elements, so the heap-only wording would be a lie.
+  // Elements did come off the page, so the heap-only wording would be wrong.
   expect(lines).not.toContain('Nothing came off the page');
 });
 

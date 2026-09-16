@@ -50,7 +50,7 @@ test('names the drawer as one leak, and the listener holding it', async ({ page,
   for (const entry of walked) expect(entry.retainerPath[0]!.node).toBe('Window');
 
   // `onResize` is the listener the leaking build never removes, and `root` is the
-  // variable it captured, so those two are the answer the report has to give.
+  // variable it captured, so the report has to name both.
   const chain = section.retainerPath;
   expect(chain.map((hop) => hop.node)).toEqual([
     'Window',
@@ -63,7 +63,7 @@ test('names the drawer as one leak, and the listener holding it', async ({ page,
     name: 'root',
   });
 
-  // Four detached classes, one bug: the report says it once, in a sentence.
+  // Four detached classes make one finding, said once in a sentence.
   expect(message).toContain('A listener on window is still registered');
   expect(message).toContain('`onResize` points at');
   // The box and the trend line already give the rate, so the sentence does not.

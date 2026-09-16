@@ -85,7 +85,7 @@ export function describeMetrics(result: SoakResult): string[] {
 // The counts say a leak exists. This says which kind.
 export function interpret(result: SoakResult): string[] {
   const { trends } = result;
-  // A guess reads as hedging next to an answer the snapshots are certain about.
+  // With a cause from the snapshots, the guesses below only repeat it less well.
   const guessing = !hasNamedCause(result);
   const nodes = trends.nodes;
   const listeners = trends.listeners;
@@ -156,7 +156,7 @@ export function interpret(result: SoakResult): string[] {
   return lines;
 }
 
-/** Leaks described in the report. Past three, a failing run has bigger problems. */
+/** How many leaks the report describes. */
 const SHOWN = 3;
 
 /** Hops in a printed chain before the middle is elided. The data keeps them all. */
@@ -164,8 +164,8 @@ const MAX_HOPS = 8;
 
 /**
  * One leak, gathered from the detached classes that share a retainer chain. A
- * leaking drawer is four classes and one bug, and reading each chain from the
- * root, the common prefix ends on the thing that leaked.
+ * leaking drawer shows up as four classes, so reading each chain from the root,
+ * the part they all share ends on the thing that leaked.
  */
 interface Leak {
   /** The leaked object, e.g. `<section class="report-drawer">`. */
@@ -203,7 +203,7 @@ function groupLeaks(detached: SoakDetachedClass[]): Leak[] {
   return leaks.sort((a, b) => b.delta - a.delta);
 }
 
-/** Where the chain is anchored, which is what the opening sentence turns on. */
+/** What the chain is anchored on, which decides the opening sentence. */
 type Anchor = 'timer' | 'listener' | 'container' | 'global' | 'other';
 
 interface Culprit {
@@ -229,7 +229,8 @@ function readChain(path: SoakRetainerHop[]): Culprit {
     out.fn = closure.node.slice('closure '.length);
     if (closure.edge?.type === 'context') out.variable = closure.edge.name;
 
-    // Only a collection is worth naming in a sentence; anything else stays in the chain.
+    // Only a collection is worth naming in a sentence. Anything else stays in the
+    // chain and out of the prose.
     const next = path[closureAt + 1]?.node;
     if (next && next !== path.at(-1)?.node && next in COLLECTIONS) out.container = next;
   }
@@ -254,7 +255,7 @@ function readChain(path: SoakRetainerHop[]): Culprit {
 
 const PENDING_TIMER = 'a pending timer';
 
-/** `closure onResize` reads as code, and `Window` is spelled the way it is typed. */
+/** Prints `onResize()` for a closure, and lower-cases `Window`. */
 function hopLabel(hop: SoakRetainerHop, first: boolean): string {
   if (hop.node.startsWith('closure ')) return `${hop.node.slice('closure '.length)}()`;
   // A property off a global is the one edge name a reader would search for.
@@ -275,7 +276,7 @@ function chainLine(path: SoakRetainerHop[]): string {
   return shown.join(' \u2192 ');
 }
 
-/** Wrapped to the width the hand-written lines in this file already sit at. */
+/** Wraps to the width the hand-written lines in this file use. */
 function sentence(text: string, width = 88): string[] {
   const lines: string[] = [];
   let current = '';
@@ -295,18 +296,18 @@ const COLLECTIONS: Record<string, string> = { Array: 'an array', Map: 'a map', S
 
 function describeLeak(leak: Leak, result: SoakResult): string[] {
   const { anchor, fn, variable, container, global, listenerTarget } = readChain(leak.path);
-  // "element" only suits the markup spelling; `Detached HTMLDivElement` already
-  // reads as a class.
+  // Only the markup spelling wants "element" after it. `Detached HTMLDivElement`
+  // is already a class name.
   const what = `the ${leak.what}${leak.what.startsWith('<') ? ' element' : ''}`;
   const collection = container ? COLLECTIONS[container] : undefined;
 
-  // A delegated listener, never removed on purpose, turns up in the chain of a
-  // leak it did not cause. The count only moves when one is really left behind.
+  // A delegated listener is never removed on purpose, so it turns up in chains
+  // of leaks it did not cause. The count only moves when one is left behind by
+  // mistake.
   const listenerLeaked = anchor === 'listener' && result.trends.listeners.total > 0;
 
-  // What the snapshot actually found, rather than what nobody got round to doing.
-  // A timer sitting in the pending store and a listener still in the chain are
-  // both things it saw; "never cleared" was a guess at how they got there.
+  // The snapshot sees a timer in the pending store and a listener in the chain.
+  // How they got there is a guess, so the sentence says what is there instead.
   const anchored =
     anchor === 'timer'
       ? 'A timer is still pending. '
@@ -322,8 +323,8 @@ function describeLeak(leak: Leak, result: SoakResult): string[] {
     cause = `${collection[0]!.toUpperCase()}${collection.slice(1)}${named} keeps growing, and`
       + ` it still references ${what}.`;
   } else if (fn) {
-    // No variable name: when it is the leaked object, `root` or `state` is a term
-    // the reader has to look up for something already described.
+    // No variable name here. When the variable is the leaked object, `root` or
+    // `state` adds nothing the rest of the sentence has not said.
     cause = anchored
       ? `Its callback \`${fn}\` points at ${what}.`
       : `\`${fn}\` still references ${what}.`;
@@ -338,9 +339,8 @@ function describeLeak(leak: Leak, result: SoakResult): string[] {
 }
 
 /**
- * The cause in a sentence, then the chain as the evidence for it. Nothing comes
- * back when there is nothing to say, so the caller can skip the section rather
- * than print an empty heading.
+ * The cause in a sentence, then the chain it came from. Returns an empty array
+ * when there is nothing to report, so the caller can skip the whole section.
  */
 export function describeDiagnosis(result: SoakResult): string[] {
   const diagnosis = result.diagnosis;
@@ -375,7 +375,7 @@ export function describeDiagnosis(result: SoakResult): string[] {
       ),
     );
   } else if (!leaks.length && diagnosis.growth.length) {
-    // Never reached the page, so the growing JS names are all there is.
+    // The leak never reached the page, so only the JS names are left to report.
     lines.push(
       ...sentence(
         'Nothing came off the page, so this is data the app keeps rather than DOM it removed' +

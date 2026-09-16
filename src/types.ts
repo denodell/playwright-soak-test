@@ -104,14 +104,14 @@ export interface SoakFailure {
 }
 
 /**
- * One link in a retainer chain, and the slot the next one down sits in. These
- * arrive structured rather than pre-formatted, since the reporter reads the
+ * One link in a retainer chain, with the name of the slot holding the next one.
+ * These arrive structured rather than pre-formatted, since the reporter reads the
  * result back out of a JSON attachment and regroups and relabels it from there.
  */
 export interface SoakRetainerHop {
   /** The retainer itself, such as `window`, `EventListener` or `closure onResize`. */
   node: string;
-  /** How this link reaches the next one. The last link has none, and nor do unnamed edges. */
+  /** How this link reaches the next one. Absent on the last link and on unnamed edges. */
   edge?: { type: 'property' | 'element' | 'context'; name: string };
 }
 
@@ -143,7 +143,7 @@ export interface SoakDiagnosis {
   growth: SoakGrowth[];
   /** Where the two snapshots were written, when they were kept. */
   snapshots?: { baseline: string; after: string };
-  /** Why the diagnosis is thin, when something cut it short. */
+  /** What cut the diagnosis short, when something did. */
   note?: string;
 }
 

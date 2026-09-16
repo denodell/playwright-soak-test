@@ -173,7 +173,7 @@ export class HeapSnapshot {
     return this.strings[this.nodes[node * this.nodeFieldCount + this.nodeNameAt]!] ?? '';
   }
 
-  /** Stable across snapshots of the same page, which is how "new since baseline" works. */
+  /** Stable across snapshots of the same page, so a new id means a new object. */
   nodeId(node: number): number {
     return this.nodes[node * this.nodeFieldCount + this.nodeIdAt]!;
   }
@@ -264,8 +264,8 @@ export class HeapSnapshot {
 
   /**
    * Shortest chain back to the root, leaf first, or null if nothing reaches it.
-   * Weak edges are skipped, since a path through one names a retainer that is
-   * not retaining.
+   * Weak edges are skipped, because a weak reference does not keep its target
+   * alive.
    */
   retainerPath(
     node: number,

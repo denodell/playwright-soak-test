@@ -30,8 +30,8 @@ class AuditEntry {
   }
 }
 
-// The array the leak hangs from. `window.__audit` on purpose, so the retainer
-// path in the report has a name a reader can search the source for.
+// The array the leak hangs from. Named `window.__audit` on purpose, so the
+// retainer path in the report shows a name you can grep for.
 window.__audit = [];
 
 let recorded = 0;

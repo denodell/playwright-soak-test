@@ -20,8 +20,8 @@ import type {
   SoakRetainerHop,
 } from './types.js';
 
-// One leak spans several classes, and they only group back into a single
-// finding if each of them has a path, so this sits above the three on show.
+// One leak usually spans several classes, and grouping them needs a path for
+// each, so this is higher than the three the report prints.
 const RETAINER_PATHS = 12;
 
 const GROWTH_NAMES = 5;
@@ -31,14 +31,14 @@ const GROWTH_FLOOR = 2;
 
 // `installSoakClock` keeps pending timers in the injected clock's own objects,
 // so a leaked timer is reached through those rather than anything your app
-// wrote. Matched by name, so it wants keeping in step with `page.clock`.
+// wrote. Matched by name, so this needs updating if `page.clock` changes.
 const CLOCK_ANCHOR = '__pwClock';
 const PENDING_TIMER = 'a pending timer';
 
 const BASELINE_FILE = 'baseline';
 const AFTER_FILE = 'after';
 
-/** V8's own objects move for reasons that have nothing to do with your flow. */
+/** V8's own objects grow and shrink on their own, so they are left out. */
 export function growthNameOf(snapshot: HeapSnapshot, node: number): string | null {
   const type = snapshot.nodeType(node);
   const name = snapshot.nodeName(node);
@@ -74,14 +74,15 @@ function countNames(snapshot: HeapSnapshot): NameCounts {
 }
 
 // Blink puts these between a listener and the function it calls, and every
-// registration goes through the same ones, so they add hops you cannot act on.
-// `EventListener` stays, since that one says how the reference was made.
+// registration goes through the same ones, so they pad the chain without naming
+// anything in your code. `EventListener` stays, because it says the reference
+// came from a listener.
 const PLUMBING = new Set(['InternalNode', 'V8EventListener', 'Detached InternalNode']);
 
 /**
- * Contexts, backing stores and the root buckets. They are real links in the
- * chain, but none of them is ever the thing you need to change, so they collapse
- * and hand their edge name to the node above.
+ * Contexts, backing stores and the root buckets. These are real links in the
+ * chain, but there is nothing in your code to change at any of them, so they
+ * collapse and hand their edge name to the node above.
  */
 function isBookkeeping(snapshot: HeapSnapshot, node: number): boolean {
   if (node === ROOT_NODE) return true;
@@ -95,7 +96,7 @@ function isBookkeeping(snapshot: HeapSnapshot, node: number): boolean {
 /**
  * DevTools groups detached wrappers under a tree node so its Memory panel can
  * list them. That node is rooted, so it is the shortest way back from every
- * detached element, and it tells you nothing.
+ * detached element, and it points at DevTools rather than at your app.
  */
 function isDetachedGrouping(snapshot: HeapSnapshot, node: number): boolean {
   const name = snapshot.nodeName(node);
@@ -150,9 +151,9 @@ export function buildRetainerPath(
 }
 
 /**
- * An object literal has no name of its own, so a hop through one reads as
- * `Object` and says nothing. Skipping it keeps each surviving hop's own edge,
- * which turns `window .__drawer-> Object .open-> fn` into `window.__drawer -> fn`.
+ * An object literal has no name, so a hop through one prints as `Object`.
+ * Skipping it keeps each surviving hop's own edge, which turns
+ * `window .__drawer-> Object .open-> fn` into `window.__drawer -> fn`.
  */
 function dropAnonymous(hops: SoakRetainerHop[]): SoakRetainerHop[] {
   return hops.filter((hop, i) => hop.node !== 'Object' || i === hops.length - 1);
@@ -175,7 +176,7 @@ function isAppCode(node: string): boolean {
   return node.startsWith('closure ') || node.startsWith('<');
 }
 
-/** The edge, when its name is something you could search your source for. */
+/** Keeps the edge only when its name appears in your source too. */
 function namedEdge(
   snapshot: HeapSnapshot,
   holder: number,
@@ -184,7 +185,7 @@ function namedEdge(
   if (!edge) return undefined;
   if (edge.type === 'element') {
     // Between two DOM nodes this index is Blink's own tree order rather than
-    // anything your code wrote, so saying "element 7" about a sibling helps nobody.
+    // anything your code wrote, so the index is not worth printing.
     if (snapshot.nodeType(holder) === 'native') return undefined;
     return { type: 'element', name: edge.name };
   }
@@ -230,7 +231,7 @@ export function pathForClass(
   if (node === null) return [];
 
   // DevTools' grouping node is skipped on the first attempt, since the path
-  // through it is always the shortest and never the one you want.
+  // through it is always the shortest, and it leads to DevTools, not your code.
   const steps =
     after.retainerPath(node, { skipRetainer: (holder) => isDetachedGrouping(after, holder) }) ??
     after.retainerPath(node);
@@ -286,8 +287,8 @@ export function diffSnapshots(
 
 function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
-  // The loser of the race carries on, so its rejection is swallowed rather than
-  // left to turn up unhandled once the run has moved on.
+  // The loser of the race carries on, so its rejection is caught here. Otherwise
+  // it turns up unhandled later.
   work.catch(() => { });
   const guard = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`${what} ran past diagnoseTimeoutMs`)), ms);
@@ -468,7 +469,7 @@ export class HeapDiagnostics {
     return diagnosis;
   }
 
-  /** Attached so you can drag them into DevTools → Memory yourself. */
+  /** Attached so you can open them in DevTools → Memory. */
   private async attach(): Promise<{ baseline: string; after: string } | null> {
     const { testInfo } = this.options;
     if (!testInfo || !this.captured.baseline || !this.captured.after) return null;
