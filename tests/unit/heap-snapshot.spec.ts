@@ -12,7 +12,7 @@ import {
   growthNameOf,
 } from '../../src/heap-diagnosis.js';
 
-// See tests/fixtures/README.md for the graph these two describe.
+// See tests/fixtures/README.md for the graphs these describe.
 function fixture(name: string): HeapSnapshot {
   const file = fileURLToPath(new URL(`../fixtures/${name}.heapsnapshot`, import.meta.url));
   return parseHeapSnapshot(fs.readFileSync(file, 'utf8'));
