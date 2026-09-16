@@ -183,7 +183,7 @@ The reporter prints a box per test and a table at the end of the run. On GitHub 
 
 ## Diagnosis
 
-The counts tell you a leak exists. They can't tell you what it is, because `Nodes` and `JSEventListeners` are totals with no names attached. So a failing run also takes a heap snapshot at the baseline pass and another at the end, diffs them by node name, and walks back from one leaked object to whatever still references it. That comes out under the usual box:
+A count going up tells you something leaked. It doesn't tell you what, so a failing run also takes a heap snapshot at the baseline pass and another at the end, and works out the answer from the difference. That prints under the box:
 
 ```
   A listener on window was never removed. Its callback `onResize` still references the
@@ -192,9 +192,9 @@ The counts tell you a leak exists. They can't tell you what it is, because `Node
     window → EventListener → onResize() → <section class="report-drawer">
 ```
 
-`onResize` is the function to go and look at, and `window` is what keeps the whole thing reachable. The chain under the sentence is the path the snapshot walked to get there, read left to right as "keeps alive". The counts stay in the box above, so the sentence does not repeat them.
+So go and look at `onResize`. The chain underneath reads left to right: `window` is keeping the listener, the listener calls `onResize`, and `onResize` still points at a section that came off the page.
 
-A leak with a collection in the middle of it names the collection instead, because that is the thing to go and find. The function that closes over it stays in the chain rather than the sentence: a bundler flattens every module into one scope, so the function the snapshot attributes that scope to is often declared in a different file from the variable.
+The other two common shapes look like this. An array nobody trims:
 
 ```
   An array called `history` keeps growing, and it still references the
@@ -203,7 +203,7 @@ A leak with a collection in the middle of it names the collection instead, becau
     window.__drawer → openDrawer() → Array → <section class="feed-panel">
 ```
 
-A timer that was never cleared reads as a timer, rather than as the machinery the virtual clock keeps it in:
+And a timer nobody cleared:
 
 ```
   A timer was never cleared. Its callback `tick` still references the <section
@@ -212,48 +212,30 @@ A timer that was never cleared reads as a timer, rather than as the machinery th
     a pending timer → tick() → <section class="live-tile">
 ```
 
-### Grouping
-
-A leaking drawer shows up in the snapshot as four detached classes: the `<section>`, the `<div>` rows inside it, their `<span>`s, and the `<h2>`. That is one bug counted four ways, and reporting it four times buries the answer under three copies of the same chain.
-
-So the chains are grouped. Read from the root, they share a prefix, and that prefix ends on the thing that actually leaked. Everything past it is that thing's contents. The report names the container and leaves the contents out, since the thing to fix is `onResize` rather than `<span> +2,340`. The counts for every class are still on the result if you want them.
-
-Detached classes are grouped by tag rather than by the full markup, so `<div class="row-1">` and `<div class="row-2">` count as one `Detached <div>`. The markup is still there on the chain, where it points at the element itself.
-
-### Diagnosis fields
-
-| Field | What it contains |
-| --- | --- |
-| `detached` | Every class of detached DOM node whose count went up, largest first. `retainerPath` is the chain of retainers, root first and the leaked object last, as `{ node, edge }` hops. |
-| `growth` | The JS names that grew most: constructors, and closures named for their function. This is what catches a leak that never touches the DOM. |
-| `snapshots` | Where the two snapshots were written, when they were kept. |
-| `note` | Why the diagnosis is thin, when something cut it short. |
-
-A leak that stays out of the DOM has nothing detached to report, so it comes back under `growth` instead:
+A leak that never touches the DOM has no element to name, so you get the class names that grew instead:
 
 ```
   Nothing came off the page, so this is data the app keeps rather than DOM it removed and
   still references. Most of the growth is in Array +850, AuditEntry +850.
 ```
 
-### Snapshots
+All of it is on `result.diagnosis` as well, under `detached`, `growth` and `snapshots`, with a `note` when something cut the diagnosis short.
 
-Both snapshots are attached to the test result, so they can be pulled out of the report and dragged into DevTools → Memory for the full retainer tree:
+### The snapshots
+
+Both snapshots are attached to the test result. Open the report and drag either one into DevTools → Memory to go further than the report does:
 
 ```sh
 npx playwright show-report
 ```
 
-The baseline one has to be taken before anyone knows whether the run will fail, so it is taken on every run that has diagnosis on at all, and deleted again when the run passes. The second one waits until the verdict is in, so a passing run takes one snapshot rather than two. A snapshot of a real app runs to hundreds of megabytes and takes a few seconds, so turn diagnosis off if a clean run needs to be as quick as it can be:
+A snapshot of a real app is hundreds of megabytes and takes a few seconds, so turn diagnosis off if you need a clean run to be as fast as it can be:
 
 ```ts
 test.use({ soakOptions: { diagnose: 'off' } });
 ```
 
-`'always'` goes the other way and reports on a clean run too, which is a way to see what a flow allocates before anything is wrong.
-
-Taking a snapshot forces a collection of its own, so the second one waits until the last reading is in rather than moving the number it is there to explain. If the snapshot work runs past `diagnoseTimeoutMs`, the diagnosis is abandoned with a note and the run's own verdict is unaffected. A flow that throws partway through discards whatever was already written.
-
+`'always'` goes the other way and reports on a clean run too, which shows you what a flow allocates before anything is wrong. Either way, if the snapshot work runs past `diagnoseTimeoutMs`, the diagnosis is dropped and the run still passes or fails on its own counts.
 
 ## API
 
