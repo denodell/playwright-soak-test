@@ -29,6 +29,12 @@ const GROWTH_NAMES = 5;
 /** One more of something is a coincidence, so growth starts at two. */
 const GROWTH_FLOOR = 2;
 
+// Parsing a snapshot costs about four times the file size in heap, and the diff
+// holds two of them, so a large enough pair runs the Playwright worker out of
+// memory. That kills the whole test run rather than the diagnosis, which is much
+// worse than not diagnosing, so anything over this is left alone with a note.
+const MAX_SNAPSHOT_BYTES = 200 * 1024 * 1024;
+
 // `installSoakClock` keeps pending timers in the injected clock's own objects,
 // so a leaked timer is reached through those rather than anything your app
 // wrote. Matched by name, so this needs updating if `page.clock` changes.
@@ -347,6 +353,18 @@ function uniqueStem(dir: string, label: string): string {
   return seen === 1 ? stem : `${stem}-${seen}`;
 }
 
+/** Why the pair cannot be parsed, when it is too big for the worker's memory. */
+export function oversizeReason(bytes: number[]): string | null {
+  const biggest = Math.max(...bytes);
+  if (biggest <= MAX_SNAPSHOT_BYTES) return null;
+  const mb = (n: number): number => Math.round(n / 1024 / 1024);
+  return (
+    `a snapshot of ${mb(biggest)}MB is over the ${mb(MAX_SNAPSHOT_BYTES)}MB this can read`
+    + ' without running the worker out of memory. Both are attached, so DevTools → Memory'
+    + ' can still open them'
+  );
+}
+
 function reason(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -443,6 +461,13 @@ export class HeapDiagnostics {
       const guard = (step: string): void => {
         if (outOfTime()) throw new Error(`${step} ran past diagnoseTimeoutMs`);
       };
+
+      const sizes = await Promise.all([
+        fsp.stat(this.files.baseline),
+        fsp.stat(this.files.after),
+      ]);
+      const oversize = oversizeReason(sizes.map((stat) => stat.size));
+      if (oversize) throw new Error(oversize);
 
       const [baselineText, afterText] = await Promise.all([
         fsp.readFile(this.files.baseline, 'utf8'),

@@ -10,6 +10,7 @@ import {
   buildRetainerPath,
   diffSnapshots,
   growthNameOf,
+  oversizeReason,
 } from '../../src/heap-diagnosis.js';
 
 // See tests/fixtures/README.md for the graphs these describe.
@@ -229,5 +230,21 @@ test.describe('diffSnapshots', () => {
 
   test('a snapshot against itself finds nothing', () => {
     expect(diffSnapshots(after, after)).toEqual({ detached: [], growth: [] });
+  });
+});
+
+test.describe('oversizeReason', () => {
+  test('a pair the worker can hold is fine', () => {
+    expect(oversizeReason([50 * 1024 * 1024, 120 * 1024 * 1024])).toBeNull();
+  });
+
+  test('a pair too big to parse says so, and says the files are still there', () => {
+    // Parsing costs around four times the file size in heap and the diff holds
+    // two, so past this the worker runs out of memory and takes the whole test
+    // run with it. Not diagnosing is the better failure.
+    const reason = oversizeReason([10 * 1024 * 1024, 640 * 1024 * 1024]);
+    expect(reason).toContain('640MB');
+    expect(reason).toContain('200MB');
+    expect(reason).toContain('attached');
   });
 });

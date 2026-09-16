@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Retainer chains through the virtual clock reported as `a pending timer`
 - `diagnose` option: `'on-failure'` (default), `'always'` or `'off'`
 - `diagnoseTimeoutMs` option, default 60,000, after which the diagnosis is dropped with a note
+- Snapshots over 200MB left unparsed with a note, since two of them would run the worker out of memory
 - Both snapshots attached as `soak-heap-baseline` and `soak-heap-after`
 - The diagnosis printed under the reporter's box, and in the `SoakLeakError` message
 - Types `SoakDiagnosis`, `SoakDiagnoseMode`, `SoakDetachedClass`, `SoakRetainerHop` and `SoakGrowth`
