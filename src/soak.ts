@@ -194,108 +194,123 @@ async function executeSoak(
       });
   await heap?.captureBaseline();
 
-  baselineMetrics = baseline;
-  latestMetrics = baseline;
-  const samples: SoakSample[] = [{ pass: 0, ...baseline }];
-  const measured = opts.passes - opts.warmup;
+  // A flow that throws leaves the run without a verdict, and the baseline
+  // snapshot is already on disk by then. On a real app that is hundreds of
+  // megabytes in the output directory, plus a temp directory of its own when
+  // there is no `testInfo` to put it beside.
+  let settled = false;
+  try {
 
-  for (let pass = 1; pass <= measured; pass++) {
-    await onePass();
-    done++;
-    const traced = pass <= opts.tracePasses;
-    const sampled = pass % opts.sampleEvery === 0;
-    if (pass !== measured && (traced || sampled)) {
-      const sample = await read();
-      latestMetrics = sample;
-      samples.push({ pass, ...sample });
+    baselineMetrics = baseline;
+    latestMetrics = baseline;
+    const samples: SoakSample[] = [{ pass: 0, ...baseline }];
+    const measured = opts.passes - opts.warmup;
+
+    for (let pass = 1; pass <= measured; pass++) {
+      await onePass();
+      done++;
+      const traced = pass <= opts.tracePasses;
+      const sampled = pass % opts.sampleEvery === 0;
+      if (pass !== measured && (traced || sampled)) {
+        const sample = await read();
+        latestMetrics = sample;
+        samples.push({ pass, ...sample });
+      }
+      reportProgress();
     }
-    reportProgress();
-  }
 
-  const after = await read();
-  samples.push({ pass: measured, ...after });
+    const after = await read();
+    samples.push({ pass: measured, ...after });
 
-  // Taking a snapshot forces a collection of its own, so it waits until the last
-  // reading is in rather than moving the number it is meant to explain.
-  await heap?.captureAfter();
+    const trends = {
+      nodes: trendOf(samples, 'nodes', baseline.nodes, after.nodes),
+      listeners: trendOf(samples, 'listeners', baseline.listeners, after.listeners),
+      heap: trendOf(samples, 'heap', baseline.heap, after.heap),
+    };
 
-  const trends = {
-    nodes: trendOf(samples, 'nodes', baseline.nodes, after.nodes),
-    listeners: trendOf(samples, 'listeners', baseline.listeners, after.listeners),
-    heap: trendOf(samples, 'heap', baseline.heap, after.heap),
-  };
-
-  const failures: SoakFailure[] = [];
-  if (trends.listeners.total > opts.listenerThreshold) {
-    failures.push({
-      metric: 'listeners',
-      growth: trends.listeners.total,
-      threshold: opts.listenerThreshold,
-      trend: trends.listeners,
-    });
-  }
-  if (trends.nodes.total > opts.nodeThreshold) {
-    failures.push({
-      metric: 'nodes',
-      growth: trends.nodes.total,
-      threshold: opts.nodeThreshold,
-      trend: trends.nodes,
-    });
-  }
-  if (opts.heapThresholdPercent !== null) {
-    const pct = percentGrowth(baseline.heap, after.heap);
-    if (pct > opts.heapThresholdPercent) {
+    const failures: SoakFailure[] = [];
+    if (trends.listeners.total > opts.listenerThreshold) {
       failures.push({
-        metric: 'heap',
-        growth: pct,
-        threshold: opts.heapThresholdPercent,
-        trend: trends.heap,
+        metric: 'listeners',
+        growth: trends.listeners.total,
+        threshold: opts.listenerThreshold,
+        trend: trends.listeners,
       });
     }
+    if (trends.nodes.total > opts.nodeThreshold) {
+      failures.push({
+        metric: 'nodes',
+        growth: trends.nodes.total,
+        threshold: opts.nodeThreshold,
+        trend: trends.nodes,
+      });
+    }
+    if (opts.heapThresholdPercent !== null) {
+      const pct = percentGrowth(baseline.heap, after.heap);
+      if (pct > opts.heapThresholdPercent) {
+        failures.push({
+          metric: 'heap',
+          growth: pct,
+          threshold: opts.heapThresholdPercent,
+          trend: trends.heap,
+        });
+      }
+    }
+
+    let diagnosis: SoakDiagnosis | undefined;
+    if (heap) {
+      // Nothing between the last reading and here touches the page, so waiting
+      // until the verdict is in costs the second snapshot nothing and saves taking
+      // one at all on a run that passes, which is most of them. Taking it forces a
+      // collection of its own, which is why it could never have come any earlier.
+      const wanted = opts.diagnose === 'always' || failures.length > 0;
+      if (wanted) {
+        await heap.captureAfter();
+        diagnosis = await heap.build();
+      } else {
+        await heap.discard();
+      }
+      settled = true;
+    }
+
+    const result: SoakResult = {
+      label: opts.label,
+      passes: opts.passes,
+      warmup: opts.warmup,
+      baseline,
+      after,
+      samples,
+      trends,
+      failures,
+      leaking: failures.length > 0,
+      thresholds: {
+        nodes: opts.nodeThreshold,
+        listeners: opts.listenerThreshold,
+        heap: opts.heapThresholdPercent,
+      },
+      clock: {
+        enabled: Boolean(opts.clock),
+        advanceMs: opts.clock ? opts.clock.advanceMs : 0,
+        virtualElapsedMs: clockInstalled ? await virtualElapsedMs(page) : null,
+      },
+      exposeGc,
+      responseTimeouts,
+      ...(diagnosis ? { diagnosis } : {}),
+    };
+
+    if (testInfo) {
+      await testInfo.attach('soak-metrics', {
+        body: JSON.stringify(result),
+        contentType: 'application/json',
+      });
+    }
+
+    if (result.leaking && throwOnLeak) throw new SoakLeakError(buildFailureMessage(result), result);
+
+    return result;
+  } finally {
+    if (!settled) await heap?.discard();
   }
-
-  let diagnosis: SoakDiagnosis | undefined;
-  if (heap) {
-    const wanted = opts.diagnose === 'always' || failures.length > 0;
-    if (wanted) diagnosis = await heap.build();
-    else await heap.discard();
-  }
-
-  const result: SoakResult = {
-    label: opts.label,
-    passes: opts.passes,
-    warmup: opts.warmup,
-    baseline,
-    after,
-    samples,
-    trends,
-    failures,
-    leaking: failures.length > 0,
-    thresholds: {
-      nodes: opts.nodeThreshold,
-      listeners: opts.listenerThreshold,
-      heap: opts.heapThresholdPercent,
-    },
-    clock: {
-      enabled: Boolean(opts.clock),
-      advanceMs: opts.clock ? opts.clock.advanceMs : 0,
-      virtualElapsedMs: clockInstalled ? await virtualElapsedMs(page) : null,
-    },
-    exposeGc,
-    responseTimeouts,
-    ...(diagnosis ? { diagnosis } : {}),
-  };
-
-  if (testInfo) {
-    await testInfo.attach('soak-metrics', {
-      body: JSON.stringify(result),
-      contentType: 'application/json',
-    });
-  }
-
-  if (result.leaking && throwOnLeak) throw new SoakLeakError(buildFailureMessage(result), result);
-
-  return result;
 }
 
 export function runSoak(

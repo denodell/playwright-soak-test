@@ -244,7 +244,7 @@ Both snapshots are attached to the test result, so they can be pulled out of the
 npx playwright show-report
 ```
 
-The baseline one has to be taken before anyone knows whether the run will fail, so it is taken on every run that has diagnosis on at all, and deleted again when the run passes. A snapshot of a real app runs to hundreds of megabytes and takes a few seconds, so turn diagnosis off if a clean run needs to be as quick as it can be:
+The baseline one has to be taken before anyone knows whether the run will fail, so it is taken on every run that has diagnosis on at all, and deleted again when the run passes. The second one waits until the verdict is in, so a passing run takes one snapshot rather than two. A snapshot of a real app runs to hundreds of megabytes and takes a few seconds, so turn diagnosis off if a clean run needs to be as quick as it can be:
 
 ```ts
 test.use({ soakOptions: { diagnose: 'off' } });
@@ -252,7 +252,7 @@ test.use({ soakOptions: { diagnose: 'off' } });
 
 `'always'` goes the other way and reports on a clean run too, which is a way to see what a flow allocates before anything is wrong.
 
-Taking a snapshot forces a collection of its own, so the second one waits until the last reading is in rather than moving the number it is there to explain. If the snapshot work runs past `diagnoseTimeoutMs`, the diagnosis is abandoned with a note and the run's own verdict is unaffected.
+Taking a snapshot forces a collection of its own, so the second one waits until the last reading is in rather than moving the number it is there to explain. If the snapshot work runs past `diagnoseTimeoutMs`, the diagnosis is abandoned with a note and the run's own verdict is unaffected. A flow that throws partway through discards whatever was already written.
 
 
 ## API
@@ -420,7 +420,7 @@ A run prints its progress every `progressEveryMs`, which defaults to 30 seconds:
 - Clicking an element that your flow then removes adds two retained nodes a pass in Chromium. They only turn up on a subtree the app is already keeping, so a clean build still reads exactly 0.
 - A `::before` or `::after` with `content` puts a `PseudoElement` and its text into the node count, so a component can read two nodes higher than the elements you actually wrote.
 - The counts miss anything that stays out of the DOM. A poller that keeps every response in an array grows the heap by 300% with the counts dead flat, and the run passes. Use `heapThresholdPercent` to catch that case; the [diagnosis](#diagnosis) then names what piled up.
-- Diagnosis reads the snapshot with a single `JSON.parse`, so a page whose snapshot runs past Node's string limit is out of reach for now. `diagnoseTimeoutMs` stops that from turning into a failed test.
+- Diagnosis reads the snapshot with a single `JSON.parse`, so a page whose snapshot runs past Node's string limit is out of reach for now. `diagnoseTimeoutMs` is checked between each step of the diagnosis and before each chain is walked, but it cannot interrupt one `JSON.parse`, so a snapshot large enough to take minutes to read will run past it.
 
 ## Examples
 

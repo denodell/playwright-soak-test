@@ -214,3 +214,47 @@ test('running out of diagnoseTimeoutMs leaves a note rather than failing the run
   expect(diagnosis.growth).toEqual([]);
   expect(diagnosis.snapshots).toBeUndefined();
 });
+
+test('two runs in one test keep their own snapshots', async ({ page, soak }) => {
+  await page.goto('/fixed/');
+  await page.waitForFunction(() => window.__drawer !== undefined);
+
+  const first = await soak.run(() => openAndCloseDrawer(page), { diagnose: 'always' });
+  const second = await soak.run(() => openAndCloseDrawer(page), { diagnose: 'always' });
+
+  const a = first.diagnosis!.snapshots!;
+  const b = second.diagnosis!.snapshots!;
+
+  // Same test, same output directory, same label. Sharing a filename would mean
+  // the second run wrote over the first, and a discard would delete files the
+  // first result still points at.
+  expect(a.baseline).not.toBe(b.baseline);
+  expect(a.after).not.toBe(b.after);
+  for (const file of [a.baseline, a.after, b.baseline, b.after]) {
+    expect(fs.existsSync(file), `${file} is missing`).toBe(true);
+  }
+});
+
+test('a flow that throws does not leave its baseline snapshot behind', async ({
+  page,
+  soak,
+}, testInfo) => {
+  await page.goto('/fixed/');
+  await page.waitForFunction(() => window.__drawer !== undefined);
+
+  let passes = 0;
+  const boom = new Error('the flow gave up');
+  const thrown = await soak
+    .run(async () => {
+      await openAndCloseDrawer(page);
+      // Late enough that the baseline snapshot is already on disk.
+      if (++passes > 8) throw boom;
+    })
+    .then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+  expect(thrown).toBe(boom);
+  expect(snapshotsIn(testInfo.outputPath())).toEqual([]);
+});

@@ -160,6 +160,9 @@ export function interpret(result: SoakResult): string[] {
 /** Leaks described in the report. Past three, a failing run has bigger problems. */
 const SHOWN = 3;
 
+/** Hops in a printed chain before the middle is elided. The data keeps them all. */
+const MAX_HOPS = 8;
+
 /**
  * One leak, gathered from the detached classes that share a retainer chain.
  *
@@ -218,6 +221,8 @@ interface Culprit {
   container?: string;
   /** The property the whole chain hangs off, when it hangs off a global. */
   global?: string;
+  /** What the listener is registered on, which is not always the window. */
+  listenerTarget?: string;
 }
 
 function readChain(path: SoakRetainerHop[]): Culprit {
@@ -242,9 +247,15 @@ function readChain(path: SoakRetainerHop[]): Culprit {
     out.global = `window.${root.edge.name}`;
   }
 
+  const listenerAt = path.findIndex((hop) => hop.node === 'EventListener');
   if (path.some((hop) => hop.node === PENDING_TIMER)) out.anchor = 'timer';
-  else if (path.some((hop) => hop.node === 'EventListener')) out.anchor = 'listener';
-  else if (out.container) out.anchor = 'container';
+  else if (listenerAt >= 0) {
+    out.anchor = 'listener';
+    // The hop above the listener is what it is registered on. Saying "on window"
+    // for a listener on a container element would send a reader to the wrong call.
+    const target = path[listenerAt - 1];
+    if (target) out.listenerTarget = target.node === 'Window' ? 'window' : target.node;
+  } else if (out.container) out.anchor = 'container';
   else if (out.global) out.anchor = 'global';
 
   return out;
@@ -264,7 +275,15 @@ function hopLabel(hop: SoakRetainerHop, first: boolean): string {
 }
 
 function chainLine(path: SoakRetainerHop[]): string {
-  return path.map((hop, i) => hopLabel(hop, i === 0)).join(' \u2192 ');
+  const labels = path.map((hop, i) => hopLabel(hop, i === 0));
+  // Elided here rather than in the chain itself, because `groupLeaks` matches one
+  // chain against another by their hops and a truncated pair stops folding, which
+  // reports one bug several times over.
+  const shown =
+    labels.length <= MAX_HOPS
+      ? labels
+      : [...labels.slice(0, MAX_HOPS - 2), '\u2026', labels[labels.length - 1]!];
+  return shown.join(' \u2192 ');
 }
 
 /** Wrapped to the width the hand-written lines in this file already sit at. */
@@ -288,7 +307,7 @@ const COLLECTIONS: Record<string, string> = { Array: 'an array', Map: 'a map', S
 
 /** The sentence a reader acts on. The chain underneath it is the evidence. */
 function describeLeak(leak: Leak): string[] {
-  const { anchor, fn, variable, container, global } = readChain(leak.path);
+  const { anchor, fn, variable, container, global, listenerTarget } = readChain(leak.path);
   // Blink names a detached wrapper after its markup, so "element" says what the
   // angle brackets are. An older snapshot names it `Detached HTMLDivElement`
   // instead, which already reads as a class and does not want the extra word.
@@ -307,7 +326,7 @@ function describeLeak(leak: Leak): string[] {
     anchor === 'timer'
       ? 'A timer was never cleared. '
       : anchor === 'listener'
-        ? 'A listener on window was never removed. '
+        ? `A listener${listenerTarget ? ` on ${listenerTarget}` : ''} was never removed. `
         : '';
 
   let cause: string;
@@ -365,14 +384,29 @@ export function describeDiagnosis(result: SoakResult): string[] {
     lines.push('', `The run found ${formatCount(rest)} more ${rest === 1 ? 'leak' : 'leaks'} like this.`);
   }
 
-  // Nothing detached means the leak never reached the page, so the growing JS
-  // names are all there is to go on.
-  if (!leaks.length && diagnosis.growth.length) {
-    const list = diagnosis.growth.map((g) => `${g.name} ${formatSigned(g.delta)}`).join(', ');
+  const growth = diagnosis.growth.map((g) => `${g.name} ${formatSigned(g.delta)}`).join(', ');
+
+  if (!leaks.length && diagnosis.detached.length) {
+    // Detached classes grew but no chain reached a root, so the counts are all
+    // there is. Saying nothing came off the page here would be untrue, and it is
+    // the one thing the snapshot is certain about.
+    const classes = diagnosis.detached
+      .slice(0, SHOWN)
+      .map((d) => `${d.className.replace('Detached ', '')} ${formatSigned(d.delta)}`)
+      .join(', ');
+    lines.push(
+      ...sentence(
+        `Elements are coming off the page and staying in memory: ${classes}. No chain back to` +
+        ' a root came out of the snapshot, so the attached snapshots are the place to look.',
+      ),
+    );
+  } else if (!leaks.length && diagnosis.growth.length) {
+    // Nothing detached means the leak never reached the page, so the growing JS
+    // names are all there is to go on.
     lines.push(
       ...sentence(
         'Nothing came off the page, so this is data the app keeps rather than DOM it removed' +
-        ` and still references. Most of the growth is in ${list}.`,
+        ` and still references. Most of the growth is in ${growth}.`,
       ),
     );
   }

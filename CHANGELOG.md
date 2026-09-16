@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - The report stops guessing at a cause once the snapshots have named one, so a failing run no longer says the same thing twice. The counts and the per-pass rate stay in the box and the trend line, and the diagnosis sentence does not repeat them
+- A passing run takes one heap snapshot rather than two: the second waits until the thresholds have been checked, since nothing between the last reading and the verdict touches the page
 - A run with diagnosis on takes two heap snapshots, which adds to how long it takes. Passing runs print and return exactly what they did before, and `diagnose: 'off'` restores the old cost.
 
 ## [0.1.0] - 2026-08-05

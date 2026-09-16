@@ -43,9 +43,6 @@ const GROWTH_NAMES = 5;
 /** One more of something is a coincidence, not a trend. */
 const GROWTH_FLOOR = 2;
 
-/** Hops in a retainer chain before the middle is elided. */
-const MAX_HOPS = 8;
-
 /**
  * `installSoakClock` injects Playwright's clock, which stores pending timers in
  * its own object graph. A timer that was never cleared is therefore reached
@@ -185,7 +182,7 @@ export function buildRetainerPath(
     .reverse()
     .map(({ name, edge }) => (edge ? { node: name, edge } : { node: name }));
 
-  return elide(collapseClock(dropAnonymous(hops)));
+  return collapseClock(dropAnonymous(hops));
 }
 
 /**
@@ -217,11 +214,6 @@ function collapseClock(hops: SoakRetainerHop[]): SoakRetainerHop[] {
 
 function isAppCode(node: string): boolean {
   return node.startsWith('closure ') || node.startsWith('<');
-}
-
-function elide(hops: SoakRetainerHop[]): SoakRetainerHop[] {
-  if (hops.length <= MAX_HOPS) return hops;
-  return [...hops.slice(0, MAX_HOPS - 2), { node: '\u2026' }, hops[hops.length - 1]!];
 }
 
 /** The edge, when it names something a reader could search for. */
@@ -294,7 +286,11 @@ export function pathForClass(
 
 // -------------------------------------------------------------------- diffing
 
-export function diffSnapshots(baseline: HeapSnapshot, after: HeapSnapshot): SoakDiagnosis {
+export function diffSnapshots(
+  baseline: HeapSnapshot,
+  after: HeapSnapshot,
+  { outOfTime }: { outOfTime?: () => boolean } = {},
+): SoakDiagnosis {
   const before = countNames(baseline);
   const now = countNames(after);
 
@@ -307,10 +303,17 @@ export function diffSnapshots(baseline: HeapSnapshot, after: HeapSnapshot): Soak
   }
   detached.sort((a, b) => b.delta - a.delta);
 
+  let ranOut = false;
   const topClasses = detached.slice(0, RETAINER_PATHS).map((d) => d.className);
   if (topClasses.length) {
     const ids = baselineIdsFor(baseline, topClasses);
     for (const entry of detached.slice(0, RETAINER_PATHS)) {
+      // Each walk is a breadth-first pass over the whole graph, so on a big
+      // snapshot the budget can run out partway through the list.
+      if (outOfTime?.()) {
+        ranOut = true;
+        break;
+      }
       entry.retainerPath = pathForClass(after, ids, entry.className);
     }
   }
@@ -322,7 +325,11 @@ export function diffSnapshots(baseline: HeapSnapshot, after: HeapSnapshot): Soak
   }
   growth.sort((a, b) => b.delta - a.delta);
 
-  return { detached, growth: growth.slice(0, GROWTH_NAMES) };
+  const diagnosis: SoakDiagnosis = { detached, growth: growth.slice(0, GROWTH_NAMES) };
+  if (ranOut) {
+    diagnosis.note = 'Diagnosis ran past diagnoseTimeoutMs, so not every chain was walked.';
+  }
+  return diagnosis;
 }
 
 // ------------------------------------------------------------------ capturing
@@ -348,7 +355,16 @@ async function captureSnapshot(cdp: CDPSession, file: string, timeoutMs: number)
   await cdp.send('HeapProfiler.collectGarbage');
 
   const stream = fs.createWriteStream(file);
-  const onChunk = (payload: { chunk: string }): void => void stream.write(payload.chunk);
+  // A write that fails, on a full disk or into an output directory that has been
+  // removed, emits `error`. An unhandled one on a stream is an uncaughtException,
+  // which takes the Playwright worker down rather than leaving a note, so it is
+  // collected here and rethrown where the caller can turn it into one.
+  const failures: Error[] = [];
+  stream.on('error', (error: Error) => void failures.push(error));
+
+  const onChunk = (payload: { chunk: string }): void => {
+    if (!failures.length) stream.write(payload.chunk);
+  };
   cdp.on('HeapProfiler.addHeapSnapshotChunk', onChunk);
 
   try {
@@ -359,14 +375,32 @@ async function captureSnapshot(cdp: CDPSession, file: string, timeoutMs: number)
     );
   } finally {
     cdp.off('HeapProfiler.addHeapSnapshotChunk', onChunk);
-    await new Promise<void>((resolve, reject) =>
-      stream.end((error?: Error | null) => (error ? reject(error) : resolve())),
-    );
+    if (failures.length) stream.destroy();
+    else await new Promise<void>((resolve) => stream.end(() => resolve()));
   }
+
+  if (failures[0]) throw failures[0];
 }
 
 function slug(label: string): string {
   return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'run';
+}
+
+/**
+ * Two runs in one test share an output directory, and a label defaults to the
+ * test title, so the names would collide: the second run would write over the
+ * first run's snapshots and then, if it passed, delete the files the first
+ * run's result still points at. The first of a name keeps the plain filename so
+ * the usual case stays predictable.
+ */
+const taken = new Map<string, number>();
+
+function uniqueStem(dir: string, label: string): string {
+  const stem = `soak-${slug(label)}`;
+  const key = `${dir}\u0000${stem}`;
+  const seen = (taken.get(key) ?? 0) + 1;
+  taken.set(key, seen);
+  return seen === 1 ? stem : `${stem}-${seen}`;
 }
 
 function reason(error: unknown): string {
@@ -401,10 +435,10 @@ export class HeapDiagnostics {
     this.cdp = cdp;
     this.options = options;
     this.tempDir = temp ? dir : null;
-    const name = slug(options.label);
+    const stem = uniqueStem(dir, options.label);
     this.files = {
-      baseline: path.join(dir, `soak-${name}-${BASELINE_FILE}.heapsnapshot`),
-      after: path.join(dir, `soak-${name}-${AFTER_FILE}.heapsnapshot`),
+      baseline: path.join(dir, `${stem}-${BASELINE_FILE}.heapsnapshot`),
+      after: path.join(dir, `${stem}-${AFTER_FILE}.heapsnapshot`),
     };
   }
 
@@ -456,15 +490,33 @@ export class HeapDiagnostics {
 
   /** Parses, diffs, attaches the snapshots, and hands back what it found. */
   async build(): Promise<SoakDiagnosis> {
-    const diff = await this.stage(async () => {
+    const diff = await this.stage(async (budget) => {
       if (!this.captured.baseline || !this.captured.after) {
         throw new Error('both snapshots are needed for a diff');
       }
-      const [baseline, after] = await Promise.all([
+
+      // `JSON.parse` is synchronous and cannot be interrupted, so the budget is
+      // checked between the steps instead. That bounds everything except one
+      // parse, which is the piece a streaming reader would take over.
+      const deadline = Date.now() + budget;
+      const outOfTime = (): boolean => Date.now() > deadline;
+      const guard = (step: string): void => {
+        if (outOfTime()) throw new Error(`${step} ran past diagnoseTimeoutMs`);
+      };
+
+      const [baselineText, afterText] = await Promise.all([
         fsp.readFile(this.files.baseline, 'utf8'),
         fsp.readFile(this.files.after, 'utf8'),
       ]);
-      return diffSnapshots(parseHeapSnapshot(baseline), parseHeapSnapshot(after));
+      guard('Reading the snapshots');
+
+      const baseline = parseHeapSnapshot(baselineText);
+      guard('Parsing the baseline snapshot');
+
+      const after = parseHeapSnapshot(afterText);
+      guard('Parsing the second snapshot');
+
+      return diffSnapshots(baseline, after, { outOfTime });
     });
 
     const diagnosis: SoakDiagnosis = diff ?? { detached: [], growth: [] };
