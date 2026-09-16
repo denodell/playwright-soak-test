@@ -306,7 +306,7 @@ function sentence(text: string, width = 88): string[] {
 const COLLECTIONS: Record<string, string> = { Array: 'an array', Map: 'a map', Set: 'a set' };
 
 /** The sentence a reader acts on. The chain underneath it is the evidence. */
-function describeLeak(leak: Leak): string[] {
+function describeLeak(leak: Leak, result: SoakResult): string[] {
   const { anchor, fn, variable, container, global, listenerTarget } = readChain(leak.path);
   // Blink names a detached wrapper after its markup, so "element" says what the
   // angle brackets are. An older snapshot names it `Detached HTMLDivElement`
@@ -322,10 +322,17 @@ function describeLeak(leak: Leak): string[] {
   // Only a timer and a listener need a sentence of their own, because the missing
   // `clearTimeout` or `removeEventListener` is the fix and the chain cannot say
   // it. The rest is said once, by the sentence about the code.
+  // A listener in the chain is not by itself a listener that leaked. One
+  // delegated listener, registered once and never removed on purpose, holds a
+  // handler that can close over anything, so it turns up in the chain of a leak
+  // it did not cause. The count says which: it only goes up when the app
+  // registers listeners it never removes.
+  const listenerLeaked = anchor === 'listener' && result.trends.listeners.total > 0;
+
   const missing =
     anchor === 'timer'
       ? 'A timer was never cleared. '
-      : anchor === 'listener'
+      : listenerLeaked
         ? `A listener${listenerTarget ? ` on ${listenerTarget}` : ''} was never removed. `
         : '';
 
@@ -376,7 +383,7 @@ export function describeDiagnosis(result: SoakResult): string[] {
 
   for (const leak of leaks.slice(0, SHOWN)) {
     if (lines.length) lines.push('');
-    lines.push(...describeLeak(leak));
+    lines.push(...describeLeak(leak, result));
   }
 
   const rest = leaks.length - SHOWN;

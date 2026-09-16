@@ -3,8 +3,12 @@ import { describeDiagnosis } from '../../src/diagnose.js';
 import type { SoakDiagnosis, SoakResult, SoakRetainerHop } from '../../src/types.js';
 
 const flat = { perPass: 0, r2: 1, total: 0, shape: 'flat' } as const;
+const climbing = { perPass: 1, r2: 1, total: 20, shape: 'linear' } as const;
 
-function resultWith(diagnosis: SoakDiagnosis): SoakResult {
+function resultWith(
+  diagnosis: SoakDiagnosis,
+  listeners: SoakResult['trends']['listeners'] = flat,
+): SoakResult {
   return {
     label: 'a run',
     passes: 25,
@@ -12,7 +16,7 @@ function resultWith(diagnosis: SoakDiagnosis): SoakResult {
     baseline: { heap: 0, nodes: 0, listeners: 0, documents: 1 },
     after: { heap: 0, nodes: 0, listeners: 0, documents: 1 },
     samples: [],
-    trends: { nodes: flat, listeners: flat, heap: flat },
+    trends: { nodes: flat, listeners, heap: flat },
     failures: [],
     leaking: true,
     thresholds: { nodes: 100, listeners: 0, heap: null },
@@ -37,18 +41,21 @@ const detached = (
 
 test('names what the listener is registered on, rather than assuming window', () => {
   const lines = describeDiagnosis(
-    resultWith({
-      detached: [
-        detached('Detached <li>', 40, [
-          { node: 'Window' },
-          { node: '<div id="host">' },
-          { node: 'EventListener' },
-          { node: 'closure onRowClick', edge: { type: 'context', name: 'row' } },
-          { node: '<li class="row">' },
-        ]),
-      ],
-      growth: [],
-    }),
+    resultWith(
+      {
+        detached: [
+          detached('Detached <li>', 40, [
+            { node: 'Window' },
+            { node: '<div id="host">' },
+            { node: 'EventListener' },
+            { node: 'closure onRowClick', edge: { type: 'context', name: 'row' } },
+            { node: '<li class="row">' },
+          ]),
+        ],
+        growth: [],
+      },
+      climbing,
+    ),
   ).join('\n');
 
   expect(lines).toContain('A listener on <div id="host"> was never removed');
@@ -78,7 +85,7 @@ test('a chain longer than the printed cap still folds into one leak', () => {
         detached('Detached <section>', 40, chain),
       ],
       growth: [],
-    }),
+    }, climbing),
   );
 
   // One sentence, not one per detached class. The phrase appears once even though
@@ -121,4 +128,27 @@ test('nothing to say means no section at all', () => {
   expect(describeDiagnosis(resultWith({ detached: [], growth: [], note: 'ran out' }))).toEqual([
     'ran out',
   ]);
+});
+
+test('a delegated listener that never leaked is not blamed for the array it holds', () => {
+  // One listener, registered once and deliberately never removed, whose handler
+  // closes over an array that grows. `EventListener` is in the chain, but the
+  // listener count never moved, so the listener is not what leaked.
+  const lines = describeDiagnosis(
+    resultWith({
+      detached: [
+        detached('Detached <li>', 400, [
+          { node: 'Window' },
+          { node: 'EventListener' },
+          { node: 'closure onRowClick', edge: { type: 'context', name: 'seen' } },
+          { node: 'Array' },
+          { node: '<li class="row">' },
+        ]),
+      ],
+      growth: [],
+    }),
+  ).join('\n');
+
+  expect(lines).not.toContain('was never removed');
+  expect(lines).toContain('An array called `seen` keeps growing');
 });
