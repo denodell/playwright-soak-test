@@ -14,9 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Detached classes that share a chain reported as one leak, not one finding per class
 - Retainer chains through the virtual clock reported as `a pending timer`
 - `diagnose` option, off by default: `'on-failure'` takes snapshots when a run fails, `'always'` on a clean run too
+- `keepSnapshots` option, off by default, attaching both snapshots for DevTools rather than deleting them after the diff
 - `diagnoseTimeoutMs` option, default 60,000, after which the diagnosis is dropped with a note
 - Snapshots left unparsed with a note when the worker has not the heap to read one, rather than risk taking the run down
-- Both snapshots attached as `soak-heap-baseline` and `soak-heap-after`
+- Both snapshots attached as `soak-heap-baseline` and `soak-heap-after`, when `keepSnapshots` is on
 - The diagnosis printed under the reporter's box, and in the `SoakLeakError` message
 - Types `SoakDiagnosis`, `SoakDiagnoseMode`, `SoakDetachedClass`, `SoakRetainerHop` and `SoakGrowth`
 

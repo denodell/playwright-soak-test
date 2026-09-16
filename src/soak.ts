@@ -49,6 +49,7 @@ const DEFAULTS = {
   clockAdvanceMs: 18_000,
   diagnose: 'off',
   diagnoseTimeoutMs: 60_000,
+  keepSnapshots: false,
 } as const;
 
 const warned = new Set<string>();
@@ -99,6 +100,7 @@ export function resolveSoakOptions(
     label: options.label ?? fallbackLabel,
     diagnose: options.diagnose ?? DEFAULTS.diagnose,
     diagnoseTimeoutMs: options.diagnoseTimeoutMs ?? DEFAULTS.diagnoseTimeoutMs,
+    keepSnapshots: options.keepSnapshots ?? DEFAULTS.keepSnapshots,
   };
 }
 
@@ -190,6 +192,7 @@ async function executeSoak(
       : await HeapDiagnostics.open(cdp, {
         label: opts.label,
         timeoutMs: opts.diagnoseTimeoutMs,
+        keepSnapshots: opts.keepSnapshots,
         testInfo,
       });
   await heap?.captureBaseline();

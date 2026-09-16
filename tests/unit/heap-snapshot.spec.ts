@@ -240,17 +240,27 @@ test.describe('oversizeReason', () => {
   const MB = 1024 * 1024;
 
   test('a pair the budget covers is fine', () => {
-    expect(oversizeReason([50 * MB, 120 * MB], 200 * MB)).toBeNull();
+    expect(oversizeReason([50 * MB, 120 * MB], { budgetBytes: 200 * MB })).toBeNull();
   });
 
-  test('a pair too big to parse says so, and says the files are still there', () => {
+  test('a pair too big to parse says so, and points at the files', () => {
     // Parsing takes around four times the file size in heap, so past the budget
     // the worker runs out of memory and takes the whole test run with it. Better
     // to skip the diagnosis than to lose the run.
-    const reason = oversizeReason([10 * MB, 640 * MB], 200 * MB);
+    const reason = oversizeReason([10 * MB, 640 * MB], {
+      budgetBytes: 200 * MB,
+      keepSnapshots: true,
+    });
     expect(reason).toContain('640MB');
     expect(reason).toContain('200MB');
     expect(reason).toContain('attached');
+  });
+
+  test('and with the files going, says how to hang on to them instead', () => {
+    // Nothing was read, so the snapshots are the only thing left to look at.
+    const reason = oversizeReason([640 * MB], { budgetBytes: 200 * MB });
+    expect(reason).toContain('keepSnapshots');
+    expect(reason).not.toContain('Both are attached');
   });
 
   test('the budget comes from the heap this worker has left, not a fixed number', () => {

@@ -86,6 +86,13 @@ export interface SoakOptions {
    */
   diagnose?: SoakDiagnoseMode;
   /**
+   * Attach both snapshots to the test result, for opening in DevTools → Memory.
+   * Default `false`, since a real app's pair runs to hundreds of megabytes per
+   * failing test. The diagnosis is worked out either way; this only decides
+   * whether the files outlive it.
+   */
+  keepSnapshots?: boolean;
+  /**
    * Budget for the snapshot work, in ms. Default 60,000. Going over abandons the
    * diagnosis with a note on the result rather than failing the test.
    */

@@ -426,14 +426,27 @@ export function parseBudgetBytes(): number {
 }
 
 /** Why the pair was left unparsed, or null when they are small enough to read. */
-export function oversizeReason(bytes: number[], budgetBytes = parseBudgetBytes()): string | null {
+export function oversizeReason(
+  bytes: number[],
+  { budgetBytes = parseBudgetBytes(), keepSnapshots = false }: OversizeContext = {},
+): string | null {
   const biggest = Math.max(...bytes);
   if (biggest <= budgetBytes) return null;
   const mb = (n: number): number => Math.round(n / 1024 / 1024);
+  // Nothing was read, so the files are all there is. Whether they survive is the
+  // one thing the reader can still change, so the message says which it is.
+  const next = keepSnapshots
+    ? 'Both are attached, so DevTools → Memory can still open them'
+    : 'Set keepSnapshots to attach them, and DevTools → Memory can open them instead';
   return (
     `a snapshot of ${mb(biggest)}MB is over the ${mb(budgetBytes)}MB of heap this worker has`
-    + ' left to read one with. Both are attached, so DevTools → Memory can still open them'
+    + ` left to read one with. ${next}`
   );
+}
+
+interface OversizeContext {
+  budgetBytes?: number;
+  keepSnapshots?: boolean;
 }
 
 function reason(error: unknown): string {
@@ -444,6 +457,8 @@ export interface HeapDiagnosticsOptions {
   label: string;
   /** Budget for the snapshot work only. The passes in between don't spend it. */
   timeoutMs: number;
+  /** Attach the files rather than deleting them once the diff has read them. */
+  keepSnapshots?: boolean;
   testInfo?: TestInfo;
 }
 
@@ -538,7 +553,9 @@ export class HeapDiagnostics {
         fsp.stat(this.files.baseline),
         fsp.stat(this.files.after),
       ]);
-      const oversize = oversizeReason(sizes.map((stat) => stat.size));
+      const oversize = oversizeReason(sizes.map((stat) => stat.size), {
+        keepSnapshots: this.options.keepSnapshots,
+      });
       if (oversize) throw new Error(oversize);
 
       // One snapshot in memory at a time. The baseline is reduced to the counts
@@ -558,7 +575,9 @@ export class HeapDiagnostics {
     const diagnosis: SoakDiagnosis = diff ?? { detached: [], growth: [] };
     if (this.note) diagnosis.note = this.note;
 
-    const attached = await this.attach();
+    // The diff has what it needs by now, so the files only matter to whoever
+    // wants to open them in DevTools.
+    const attached = this.options.keepSnapshots ? await this.attach() : null;
     if (attached) {
       diagnosis.snapshots = attached;
       this.kept = true;

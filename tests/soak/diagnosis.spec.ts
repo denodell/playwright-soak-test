@@ -167,7 +167,10 @@ test('diagnose: always reports on a run that passed, and attaches both snapshots
   await page.goto('/fixed/');
   await page.waitForFunction(() => window.__drawer !== undefined);
 
-  const result = await soak.run(() => openAndCloseDrawer(page), { diagnose: 'always' });
+  const result = await soak.run(() => openAndCloseDrawer(page), {
+    diagnose: 'always',
+    keepSnapshots: true,
+  });
 
   expect(result.leaking).toBe(false);
   expect(result.diagnosis).toBeDefined();
@@ -179,6 +182,28 @@ test('diagnose: always reports on a run that passed, and attaches both snapshots
   const attached = testInfo.attachments.map((a) => a.name);
   expect(attached).toContain('soak-heap-baseline');
   expect(attached).toContain('soak-heap-after');
+});
+
+test('the diagnosis lands, and the snapshots go, unless they are asked for', async ({
+  page,
+  soak,
+}, testInfo) => {
+  await page.goto('/leak/');
+  await page.waitForFunction(() => window.__drawer !== undefined);
+
+  const result = await soak.measure(() => openAndCloseDrawer(page));
+
+  // The whole finding, from files that no longer exist.
+  const diagnosis = result.diagnosis!;
+  expect(diagnosis.detached.length).toBeGreaterThan(0);
+  expect(diagnosis.detached[0]!.retainerPath.length).toBeGreaterThan(0);
+  expect(diagnosis.note).toBeUndefined();
+
+  // Hundreds of megabytes a failing test, on a real app, so they are not kept
+  // without being asked for.
+  expect(diagnosis.snapshots).toBeUndefined();
+  expect(snapshotsIn(testInfo.outputPath())).toEqual([]);
+  expect(testInfo.attachments.map((a) => a.name)).not.toContain('soak-heap-after');
 });
 
 test('diagnose: off takes no snapshots at all', async ({ page, soak }, testInfo) => {
@@ -219,8 +244,9 @@ test('two runs in one test keep their own snapshots', async ({ page, soak }) => 
   await page.goto('/fixed/');
   await page.waitForFunction(() => window.__drawer !== undefined);
 
-  const first = await soak.run(() => openAndCloseDrawer(page), { diagnose: 'always' });
-  const second = await soak.run(() => openAndCloseDrawer(page), { diagnose: 'always' });
+  const twice = { diagnose: 'always', keepSnapshots: true } as const;
+  const first = await soak.run(() => openAndCloseDrawer(page), twice);
+  const second = await soak.run(() => openAndCloseDrawer(page), twice);
 
   const a = first.diagnosis!.snapshots!;
   const b = second.diagnosis!.snapshots!;

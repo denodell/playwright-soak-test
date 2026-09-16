@@ -113,6 +113,7 @@ Defaults go in `use: { soakOptions }` in the config, or at the top of a spec wit
 | `sampleEvery` | derived | Read every Nth pass after that. |
 | `label` | test title | Name used in the report and the reporter. |
 | `diagnose` | `'off'` | Heap snapshots either side of the run, diffed to name what leaked. `'on-failure'` does it when a run fails, `'always'` on a clean run too. Off by default, since a snapshot of a real app takes a few seconds. See [Diagnosis](#diagnosis). |
+| `keepSnapshots` | `false` | Attach both snapshots to the test result, for opening in DevTools. Off by default, since a real app's pair runs to hundreds of megabytes per failing test. The diagnosis is worked out either way. |
 | `diagnoseTimeoutMs` | `60000` | How long the snapshot work has before the diagnosis is dropped. Going over leaves a note on the result and never fails the run. |
 
 ## Virtual clock
@@ -244,11 +245,17 @@ The same findings are on `result.diagnosis`, under `detached`, `growth` and `sna
 
 ### The snapshots
 
-Both snapshots are attached to the test result, so you can open the report and drag either one into DevTools → Memory for the full retainer tree:
+The report is a summary: the top three leaks, one example of each class, and a chain capped at eight hops. When that isn't enough, `keepSnapshots` attaches both files to the test result, and DevTools → Memory opens either one for the full retainer tree:
+
+```ts
+test.use({ soakOptions: { diagnose: 'on-failure', keepSnapshots: true } });
+```
 
 ```sh
 npx playwright show-report
 ```
+
+They are deleted otherwise, once the diff has read them. A real app's pair runs to hundreds of megabytes, which is a lot to carry out of CI for every failing test, and the finding on `result.diagnosis` is the same either way.
 
 `'always'` goes further and reports on a clean run too, which shows what a flow allocates before anything is wrong. Either way, `'on-failure'` still takes the baseline snapshot on every run, since nothing knows the outcome that early, and deletes it again when the run passes.
 
@@ -419,7 +426,7 @@ A run prints its progress every `progressEveryMs`, which defaults to 30 seconds:
 - Clicking an element that your flow then removes adds two retained nodes a pass in Chromium. They only turn up on a subtree the app is already keeping, so a clean build still reads exactly 0.
 - A `::before` or `::after` with `content` puts a `PseudoElement` and its text into the node count, so a component can read two nodes higher than the elements you actually wrote.
 - The counts miss anything that stays out of the DOM. A poller that keeps every response in an array grows the heap by 300% with the counts dead flat, and the run passes. Use `heapThresholdPercent` to catch that case; the [diagnosis](#diagnosis) then names what piled up.
-- Diagnosis reads each snapshot with a single `JSON.parse`, which costs around four times the file size in heap. Only one snapshot is held at a time: the baseline is reduced to the counts the diff needs and dropped before the second is read. What a snapshot can be is worked out from the heap the worker has left, so it moves with `--max-old-space-size`; past that a snapshot is left unparsed with a note rather than risk taking the whole run down. The files are still attached, so DevTools can open them. For scale, an 800,000-node snapshot is 43MB and parses in under a second.
+- Diagnosis reads each snapshot with a single `JSON.parse`, which costs around four times the file size in heap. Only one snapshot is held at a time: the baseline is reduced to the counts the diff needs and dropped before the second is read. What a snapshot can be is worked out from the heap the worker has left, so it moves with `--max-old-space-size`; past that a snapshot is left unparsed with a note rather than risk taking the whole run down. For scale, an 800,000-node snapshot is 43MB and parses in under a second. Nothing is read in that case, so the note says to set `keepSnapshots` if you want the files themselves.
 - A retainer chain is the shortest route back to a root, and V8's own root buckets are often closer than your code. The walk asks for a route through the page first and falls back to the unrestricted one, so a chain that reads as a bare element means nothing else reached it.
 
 ## Examples
