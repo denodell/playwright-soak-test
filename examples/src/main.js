@@ -54,6 +54,18 @@ window.__shortcutHits = 0;
 window.__shortcutPanels = 0;
 window.__pool = { show: showRows };
 window.__auditTrail = { record: recordBatch };
+// Loaded on first open, so React stays out of the baseline heap of every other
+// example. Closing is synchronous, since a soak pass measures right after it.
+let inspector = null;
+window.__inspector = {
+  async open() {
+    inspector ??= await import('./inspector.jsx');
+    return inspector.openInspector();
+  },
+  close() {
+    inspector?.closeInspector();
+  },
+};
 window.__auditSize = 0;
 window.__poolSize = 0;
 window.__feedRows = 0;

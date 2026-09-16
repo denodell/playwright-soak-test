@@ -7,6 +7,7 @@ import {
   percentGrowth,
   sparkline,
 } from './stats.js';
+import { PENDING_TIMER } from './types.js';
 import type {
   SoakDetachedClass,
   SoakResult,
@@ -180,16 +181,16 @@ function groupLeaks(detached: SoakDetachedClass[]): Leak[] {
   const walked = detached.filter((d) => d.retainerPath.length);
   const leaks: Leak[] = [];
 
-  // A chain running through another class's leaked object is that object's contents.
+  // A chain running through another class's leaked object is that object's
+  // contents. It has to share the whole chain down to that object, not just the
+  // name at that depth, or two unrelated leaks with a <div> at the same position
+  // fold into one.
+  const inside = (candidate: SoakRetainerHop[], other: SoakRetainerHop[]): boolean =>
+    candidate.length > other.length && other.every((hop, i) => hop.node === candidate[i]?.node);
+
   const roots = walked.filter(
     (candidate) =>
-      !walked.some(
-        (other) =>
-          other !== candidate &&
-          candidate.retainerPath.length > other.retainerPath.length &&
-          candidate.retainerPath[other.retainerPath.length - 1]?.node ===
-          other.retainerPath.at(-1)?.node,
-      ),
+      !walked.some((other) => other !== candidate && inside(candidate.retainerPath, other.retainerPath)),
   );
 
   for (const root of roots) {
@@ -253,7 +254,6 @@ function readChain(path: SoakRetainerHop[]): Culprit {
   return out;
 }
 
-const PENDING_TIMER = 'a pending timer';
 
 /** Prints `onResize()` for a closure, and lower-cases `Window`. */
 function hopLabel(hop: SoakRetainerHop, first: boolean): string {

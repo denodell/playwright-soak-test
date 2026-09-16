@@ -85,6 +85,8 @@
   "devDependencies": {
     "@playwright/test": "1.56",
     "@types/node": "^22.10.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
     "vite": "^6.0.0"

@@ -225,6 +225,21 @@ A leak that stays out of the DOM has no element to name, so you get the class na
   still references. Most of the growth is in Array +850, AuditEntry +850.
 ```
 
+### Bundled builds
+
+Vite, webpack and Rollup flatten your modules into one scope, and V8 attributes that scope to whichever function it happens to pick. So a chain can name a function from a different file than the one holding the reference:
+
+```
+  A map called `mounted` keeps growing, and it still references the <section
+  class="inspector"> element.
+
+    window.__drawer → openDrawer() → Map → <section class="inspector">
+```
+
+`mounted` is the name to search for, and it is in `inspector.jsx`. `openDrawer` shares the bundle's module scope with it, which is why it shows up. The sentence names the variable for this reason, and the chain is there for the shape rather than the file. An unbundled dev build gives the function you expect.
+
+A code-split chunk adds its own `Module` and `Generator` objects between the importing file and whatever the imported one holds. Those come out of the chain, so a lazy-loaded panel reads the same as one bundled in.
+
 The same findings are on `result.diagnosis`, under `detached`, `growth` and `snapshots`, plus a `note` if something cut the diagnosis short.
 
 ### The snapshots
@@ -404,7 +419,8 @@ A run prints its progress every `progressEveryMs`, which defaults to 30 seconds:
 - Clicking an element that your flow then removes adds two retained nodes a pass in Chromium. They only turn up on a subtree the app is already keeping, so a clean build still reads exactly 0.
 - A `::before` or `::after` with `content` puts a `PseudoElement` and its text into the node count, so a component can read two nodes higher than the elements you actually wrote.
 - The counts miss anything that stays out of the DOM. A poller that keeps every response in an array grows the heap by 300% with the counts dead flat, and the run passes. Use `heapThresholdPercent` to catch that case; the [diagnosis](#diagnosis) then names what piled up.
-- Diagnosis reads each snapshot with a single `JSON.parse`, which costs around four times the file size in heap, and the diff holds two of them at once. Past 200MB a snapshot is left unparsed with a note, rather than risk running the Playwright worker out of memory and taking the whole run with it. The files are still attached, so DevTools can open them. For scale, an 800,000-node snapshot is 43MB and parses in under a second.
+- Diagnosis reads each snapshot with a single `JSON.parse`, which costs around four times the file size in heap. Only one snapshot is held at a time: the baseline is reduced to the counts the diff needs and dropped before the second is read. What a snapshot can be is worked out from the heap the worker has left, so it moves with `--max-old-space-size`; past that a snapshot is left unparsed with a note rather than risk taking the whole run down. The files are still attached, so DevTools can open them. For scale, an 800,000-node snapshot is 43MB and parses in under a second.
+- A retainer chain is the shortest route back to a root, and V8's own root buckets are often closer than your code. The walk asks for a route through the page first and falls back to the unrestricted one, so a chain that reads as a bare element means nothing else reached it.
 
 ## Examples
 

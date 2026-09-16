@@ -9,6 +9,7 @@ declare global {
     __shortcutPanels: number;
     __pool: { show: (count: number) => void };
     __auditTrail: { record: () => void };
+    __inspector: { open: () => Promise<void>; close: () => void };
     __auditSize: number;
     __poolSize: number;
     __feedRows: number;

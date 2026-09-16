@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import v8 from 'node:v8';
 import { expect, test } from '@playwright/test';
 import {
   detachedClassOf,
@@ -11,6 +12,8 @@ import {
   diffSnapshots,
   growthNameOf,
   oversizeReason,
+  parseBudgetBytes,
+  pathForClass,
 } from '../../src/heap-diagnosis.js';
 
 // See tests/fixtures/README.md for the graphs these describe.
@@ -234,17 +237,50 @@ test.describe('diffSnapshots', () => {
 });
 
 test.describe('oversizeReason', () => {
-  test('a pair the worker can hold is fine', () => {
-    expect(oversizeReason([50 * 1024 * 1024, 120 * 1024 * 1024])).toBeNull();
+  const MB = 1024 * 1024;
+
+  test('a pair the budget covers is fine', () => {
+    expect(oversizeReason([50 * MB, 120 * MB], 200 * MB)).toBeNull();
   });
 
   test('a pair too big to parse says so, and says the files are still there', () => {
-    // Parsing takes around four times the file size in heap and the diff holds
-    // two, so past this the worker runs out of memory and takes the whole test run
-    // with it. Better to skip the diagnosis than to lose the run.
-    const reason = oversizeReason([10 * 1024 * 1024, 640 * 1024 * 1024]);
+    // Parsing takes around four times the file size in heap, so past the budget
+    // the worker runs out of memory and takes the whole test run with it. Better
+    // to skip the diagnosis than to lose the run.
+    const reason = oversizeReason([10 * MB, 640 * MB], 200 * MB);
     expect(reason).toContain('640MB');
     expect(reason).toContain('200MB');
     expect(reason).toContain('attached');
+  });
+
+  test('the budget comes from the heap this worker has left, not a fixed number', () => {
+    const budget = parseBudgetBytes();
+    // Node's own limit is the ceiling, so the budget has to sit under it however
+    // the worker was launched.
+    expect(budget).toBeGreaterThan(0);
+    expect(budget).toBeLessThan(v8.getHeapStatistics().heap_size_limit);
+    expect(oversizeReason([budget * 2])).not.toBeNull();
+    expect(oversizeReason([budget / 2])).toBeNull();
+  });
+});
+
+test.describe('a leak the GC roots reach first', () => {
+  const snapshot = fixture('global-handle');
+  const SECTION = 5;
+
+  test('the shortest chain is the useless one', () => {
+    // Two hops through (Global handles) against four through the page, so the
+    // plain walk takes the short one and collapsing leaves nothing to act on.
+    expect(buildRetainerPath(snapshot, snapshot.retainerPath(SECTION)!)).toEqual([
+      { node: '<section class="panel">' },
+    ]);
+  });
+
+  test('so the walk asks for a route through the page first', () => {
+    expect(pathForClass(snapshot, new Map(), 'Detached <section>')).toEqual([
+      { node: 'Window', edge: { type: 'property', name: '__panel' } },
+      { node: 'closure openPanel', edge: { type: 'context', name: 'panel' } },
+      { node: '<section class="panel">' },
+    ]);
   });
 });

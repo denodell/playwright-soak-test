@@ -15,7 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Retainer chains through the virtual clock reported as `a pending timer`
 - `diagnose` option, off by default: `'on-failure'` takes snapshots when a run fails, `'always'` on a clean run too
 - `diagnoseTimeoutMs` option, default 60,000, after which the diagnosis is dropped with a note
-- Snapshots over 200MB left unparsed with a note, since two of them would run the worker out of memory
+- Snapshots left unparsed with a note when the worker has not the heap to read one, rather than risk taking the run down
 - Both snapshots attached as `soak-heap-baseline` and `soak-heap-after`
 - The diagnosis printed under the reporter's box, and in the `SoakLeakError` message
 - Types `SoakDiagnosis`, `SoakDiagnoseMode`, `SoakDetachedClass`, `SoakRetainerHop` and `SoakGrowth`
@@ -23,6 +23,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - The report stops guessing at a cause once the snapshots have named one
+- Retainer walks look for a route through the page before falling back to one through V8's root buckets
+- One snapshot held in memory at a time, with the baseline reduced to counts and ids before the second is read
+- Detached classes group into one leak by their whole shared chain, not by the name at one depth
+- A code-split chunk's `Module` and `Generator` objects collapse out of the chain, keeping the variable name behind them
 
 Diagnosis is off by default, so a suite upgrading from 0.1.0 runs exactly as it did. Turning it on costs two heap snapshots on a failing run and one on a passing run.
 

@@ -196,8 +196,8 @@ async function executeSoak(
 
   // A flow that throws leaves the run without a verdict, and by then the baseline
   // snapshot is on disk. On a real app that is hundreds of megabytes left behind
-  // in your output directory.
-  let settled = false;
+  // in your output directory. `discard` is a no-op once the snapshots have been
+  // attached, so it can run on every exit.
   try {
 
     baselineMetrics = baseline;
@@ -268,7 +268,6 @@ async function executeSoak(
       } else {
         await heap.discard();
       }
-      settled = true;
     }
 
     const result: SoakResult = {
@@ -307,7 +306,7 @@ async function executeSoak(
 
     return result;
   } finally {
-    if (!settled) await heap?.discard();
+    await heap?.discard();
   }
 }
 

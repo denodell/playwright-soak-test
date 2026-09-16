@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import v8 from 'node:v8';
 import type { CDPSession, TestInfo } from '@playwright/test';
 import {
   detachedClassOf,
@@ -13,6 +14,7 @@ import {
   ROOT_NODE,
   type RetainerStep,
 } from './heap-snapshot.js';
+import { PENDING_TIMER } from './types.js';
 import type {
   SoakDetachedClass,
   SoakDiagnosis,
@@ -30,16 +32,17 @@ const GROWTH_NAMES = 5;
 const GROWTH_FLOOR = 2;
 
 // Parsing a snapshot takes roughly four times the file size in heap, and the
-// diff holds two at once. A big enough pair would run the Playwright worker out
-// of memory and take the whole test run with it, so past this size the snapshots
-// are left unparsed and the result carries a note.
-const MAX_SNAPSHOT_BYTES = 200 * 1024 * 1024;
+// text stays alive alongside the parsed form while `JSON.parse` runs.
+const PARSE_HEAP_FACTOR = 5;
+
+// The rest of the worker needs the other half: the page, the fixtures, and
+// whatever the test is holding.
+const HEAP_SHARE = 0.5;
 
 // `installSoakClock` keeps pending timers inside the injected clock, so the path
 // to a leaked timer runs through Playwright's objects rather than your app's.
 // Matched by name, so this needs updating if `page.clock` changes.
 const CLOCK_ANCHOR = '__pwClock';
-const PENDING_TIMER = 'a pending timer';
 
 const BASELINE_FILE = 'baseline';
 const AFTER_FILE = 'after';
@@ -57,26 +60,43 @@ export function growthNameOf(snapshot: HeapSnapshot, node: number): string | nul
   return name;
 }
 
-interface NameCounts {
+/**
+ * Everything the diff needs from the baseline snapshot: counts by name, and the
+ * node ids behind each detached class. Small enough to keep while the second
+ * snapshot is parsed, which is the point of having it.
+ */
+export interface BaselineDigest {
   detached: Map<string, number>;
   growth: Map<string, number>;
+  detachedIds: Map<string, Set<number>>;
 }
 
-function countNames(snapshot: HeapSnapshot): NameCounts {
+function countNames(snapshot: HeapSnapshot, collectIds: boolean): BaselineDigest {
   const detached = new Map<string, number>();
   const growth = new Map<string, number>();
+  const detachedIds = new Map<string, Set<number>>();
 
   for (let node = 0; node < snapshot.nodeCount; node++) {
     const className = detachedClassOf(snapshot, node);
     if (className !== null) {
       detached.set(className, (detached.get(className) ?? 0) + 1);
+      if (collectIds) {
+        let ids = detachedIds.get(className);
+        if (!ids) detachedIds.set(className, (ids = new Set()));
+        ids.add(snapshot.nodeId(node));
+      }
       continue;
     }
     const name = growthNameOf(snapshot, node);
     if (name !== null) growth.set(name, (growth.get(name) ?? 0) + 1);
   }
 
-  return { detached, growth };
+  return { detached, growth, detachedIds };
+}
+
+/** Reduces the baseline to the digest above, so the snapshot itself can be dropped. */
+export function digestBaseline(baseline: HeapSnapshot): BaselineDigest {
+  return countNames(baseline, true);
 }
 
 // Blink puts these between a listener and the function it calls. Every
@@ -107,6 +127,17 @@ function isBookkeeping(snapshot: HeapSnapshot, node: number): boolean {
 function isDetachedGrouping(snapshot: HeapSnapshot, node: number): boolean {
   const name = snapshot.nodeName(node);
   return name.startsWith('Detached DOM tree') || name.startsWith('(Detached');
+}
+
+/**
+ * V8's own root buckets, `(GC roots)` and `(Global handles)` among them. A
+ * wrapper held by a global handle is two or three hops from the root, which
+ * beats any route through your own code on hop count, and `isBookkeeping` then
+ * collapses the lot and leaves the element on its own. DevTools has the same
+ * problem and looks for a path through the page first.
+ */
+function isSyntheticRoot(snapshot: HeapSnapshot, node: number): boolean {
+  return snapshot.nodeType(node) === 'synthetic';
 }
 
 function describeNode(snapshot: HeapSnapshot, node: number): string {
@@ -153,7 +184,7 @@ export function buildRetainerPath(
     .reverse()
     .map(({ name, edge }) => (edge ? { node: name, edge } : { node: name }));
 
-  return collapseClock(dropAnonymous(hops));
+  return collapseClock(dropModuleWrapper(dropAnonymous(hops)));
 }
 
 /**
@@ -163,6 +194,36 @@ export function buildRetainerPath(
  */
 function dropAnonymous(hops: SoakRetainerHop[]): SoakRetainerHop[] {
   return hops.filter((hop, i) => hop.node !== 'Object' || i === hops.length - 1);
+}
+
+/**
+ * A code-split chunk sits between the file that imported it and anything the
+ * imported one holds: the namespace object, then the module's own scope. Neither
+ * is yours to change, and the name worth keeping is the variable the scope
+ * holds, so it moves up to the hop above, which is in your code.
+ */
+function dropModuleWrapper(hops: SoakRetainerHop[]): SoakRetainerHop[] {
+  const out: SoakRetainerHop[] = [];
+
+  for (let i = 0; i < hops.length; i++) {
+    const hop = hops[i]!;
+    if (hop.node !== 'Module') {
+      out.push(hop);
+      continue;
+    }
+
+    // A `Generator` on its own can be a suspended async function worth seeing,
+    // so only the one a module holds goes with it.
+    let end = i;
+    if (hops[end + 1]?.node === 'Generator') end++;
+
+    const carried = hops[end]!.edge;
+    const previous = out.pop();
+    if (previous) out.push(carried ? { node: previous.node, edge: carried } : { node: previous.node });
+    i = end;
+  }
+
+  return out;
 }
 
 /** Folds the injected clock into one hop, stopping at your own callback. */
@@ -215,19 +276,6 @@ function representativeNode(
   return fallback;
 }
 
-function baselineIdsFor(baseline: HeapSnapshot, classNames: string[]): Map<string, Set<number>> {
-  const wanted = new Set(classNames);
-  const out = new Map<string, Set<number>>();
-  for (const name of classNames) out.set(name, new Set());
-
-  for (let node = 0; node < baseline.nodeCount; node++) {
-    const className = detachedClassOf(baseline, node);
-    if (className === null || !wanted.has(className)) continue;
-    out.get(className)!.add(baseline.nodeId(node));
-  }
-  return out;
-}
-
 export function pathForClass(
   after: HeapSnapshot,
   baselineIds: Map<string, Set<number>>,
@@ -236,22 +284,37 @@ export function pathForClass(
   const node = representativeNode(after, baselineIds.get(className), className);
   if (node === null) return [];
 
-  // Skip DevTools' grouping node on the first try. The path through it is always
-  // the shortest, and it leads to DevTools rather than to your code.
-  const steps =
-    after.retainerPath(node, { skipRetainer: (holder) => isDetachedGrouping(after, holder) }) ??
-    after.retainerPath(node);
+  // Each attempt bans a shortcut that wins on hop count but says nothing about
+  // your code. Most classes come back on the first one, and the last takes
+  // whatever reaches the root.
+  const attempts: Array<((holder: number) => boolean) | null> = [
+    (holder) => isDetachedGrouping(after, holder) || isSyntheticRoot(after, holder),
+    (holder) => isDetachedGrouping(after, holder),
+    null,
+  ];
 
-  return steps ? buildRetainerPath(after, steps) : [];
+  for (const skipRetainer of attempts) {
+    const steps = after.retainerPath(node, skipRetainer ? { skipRetainer } : {});
+    if (steps) return buildRetainerPath(after, steps);
+  }
+  return [];
 }
 
+/** Both snapshots in memory at once. `diffDigest` is the one the runner uses. */
 export function diffSnapshots(
   baseline: HeapSnapshot,
   after: HeapSnapshot,
+  options: { outOfTime?: () => boolean } = {},
+): SoakDiagnosis {
+  return diffDigest(digestBaseline(baseline), after, options);
+}
+
+export function diffDigest(
+  before: BaselineDigest,
+  after: HeapSnapshot,
   { outOfTime }: { outOfTime?: () => boolean } = {},
 ): SoakDiagnosis {
-  const before = countNames(baseline);
-  const now = countNames(after);
+  const now = countNames(after, false);
 
   const detached: SoakDetachedClass[] = [];
   for (const [className, count] of now.detached) {
@@ -263,18 +326,14 @@ export function diffSnapshots(
   detached.sort((a, b) => b.delta - a.delta);
 
   let ranOut = false;
-  const topClasses = detached.slice(0, RETAINER_PATHS).map((d) => d.className);
-  if (topClasses.length) {
-    const ids = baselineIdsFor(baseline, topClasses);
-    for (const entry of detached.slice(0, RETAINER_PATHS)) {
-      // Each walk is a pass over the whole graph, so on a big snapshot the budget
-      // can run out partway down the list.
-      if (outOfTime?.()) {
-        ranOut = true;
-        break;
-      }
-      entry.retainerPath = pathForClass(after, ids, entry.className);
+  for (const entry of detached.slice(0, RETAINER_PATHS)) {
+    // Each walk is a pass over the whole graph, so on a big snapshot the budget
+    // can run out partway down the list.
+    if (outOfTime?.()) {
+      ranOut = true;
+      break;
     }
+    entry.retainerPath = pathForClass(after, before.detachedIds, entry.className);
   }
 
   const growth: SoakGrowth[] = [];
@@ -314,6 +373,8 @@ async function captureSnapshot(cdp: CDPSession, file: string, timeoutMs: number)
   const failures: Error[] = [];
   stream.on('error', (error: Error) => void failures.push(error));
 
+  // CDP has no way to pause the chunks, so a slow disk buffers them in memory
+  // rather than applying backpressure. Nothing to do about it here.
   const onChunk = (payload: { chunk: string }): void => {
     if (!failures.length) stream.write(payload.chunk);
   };
@@ -353,15 +414,25 @@ function uniqueStem(dir: string, label: string): string {
   return seen === 1 ? stem : `${stem}-${seen}`;
 }
 
+/**
+ * How big one snapshot can be, given the heap this worker has left. A fixed
+ * number cannot work: the same 200MB pair is fine under `--max-old-space-size`
+ * of 8GB and fatal under Node's 2GB default.
+ */
+export function parseBudgetBytes(): number {
+  const stats = v8.getHeapStatistics();
+  const spare = Math.max(0, stats.heap_size_limit - stats.used_heap_size);
+  return (spare * HEAP_SHARE) / PARSE_HEAP_FACTOR;
+}
+
 /** Why the pair was left unparsed, or null when they are small enough to read. */
-export function oversizeReason(bytes: number[]): string | null {
+export function oversizeReason(bytes: number[], budgetBytes = parseBudgetBytes()): string | null {
   const biggest = Math.max(...bytes);
-  if (biggest <= MAX_SNAPSHOT_BYTES) return null;
+  if (biggest <= budgetBytes) return null;
   const mb = (n: number): number => Math.round(n / 1024 / 1024);
   return (
-    `a snapshot of ${mb(biggest)}MB is over the ${mb(MAX_SNAPSHOT_BYTES)}MB this can read`
-    + ' without running the worker out of memory. Both are attached, so DevTools → Memory'
-    + ' can still open them'
+    `a snapshot of ${mb(biggest)}MB is over the ${mb(budgetBytes)}MB of heap this worker has`
+    + ' left to read one with. Both are attached, so DevTools → Memory can still open them'
   );
 }
 
@@ -390,6 +461,7 @@ export class HeapDiagnostics {
   private spentMs = 0;
   private note: string | null = null;
   private captured = { baseline: false, after: false };
+  private kept = false;
 
   private constructor(cdp: CDPSession, options: HeapDiagnosticsOptions, dir: string, temp: boolean) {
     this.cdp = cdp;
@@ -469,27 +541,30 @@ export class HeapDiagnostics {
       const oversize = oversizeReason(sizes.map((stat) => stat.size));
       if (oversize) throw new Error(oversize);
 
-      const [baselineText, afterText] = await Promise.all([
-        fsp.readFile(this.files.baseline, 'utf8'),
-        fsp.readFile(this.files.after, 'utf8'),
-      ]);
-      guard('Reading the snapshots');
-
-      const baseline = parseHeapSnapshot(baselineText);
+      // One snapshot in memory at a time. The baseline is reduced to the counts
+      // and ids the diff needs, then goes out of scope before the second file is
+      // read, which halves what the worker has to hold at the peak.
+      const before = digestBaseline(
+        parseHeapSnapshot(await fsp.readFile(this.files.baseline, 'utf8')),
+      );
       guard('Parsing the baseline snapshot');
 
-      const after = parseHeapSnapshot(afterText);
+      const after = parseHeapSnapshot(await fsp.readFile(this.files.after, 'utf8'));
       guard('Parsing the second snapshot');
 
-      return diffSnapshots(baseline, after, { outOfTime });
+      return diffDigest(before, after, { outOfTime });
     });
 
     const diagnosis: SoakDiagnosis = diff ?? { detached: [], growth: [] };
     if (this.note) diagnosis.note = this.note;
 
     const attached = await this.attach();
-    if (attached) diagnosis.snapshots = attached;
-    else await this.discard();
+    if (attached) {
+      diagnosis.snapshots = attached;
+      this.kept = true;
+    } else {
+      await this.discard();
+    }
 
     return diagnosis;
   }
@@ -513,7 +588,12 @@ export class HeapDiagnostics {
     }
   }
 
+  /**
+   * Safe to call again after `build`, so the runner can put it in a `finally`
+   * without tracking whether the snapshots were wanted in the end.
+   */
   async discard(): Promise<void> {
+    if (this.kept) return;
     await Promise.all([
       fsp.rm(this.files.baseline, { force: true }),
       fsp.rm(this.files.after, { force: true }),
