@@ -172,7 +172,7 @@ interface Leak {
   what: string;
   /** How many more of them than at the baseline. */
   delta: number;
-  /** Holders, root first, ending on `what`. */
+  /** The chain of retainers, root first, ending on `what`. */
   path: SoakRetainerHop[];
 }
 

@@ -311,7 +311,8 @@ export class HeapSnapshot {
 
     if (!found) return null;
 
-    // parent[] runs holder → held, so walk from the root and reverse.
+    // parent[] runs retainer → retained, so walking it from the root and
+    // reversing gives the chain leaf first.
     const steps: RetainerStep[] = [];
     for (let current = ROOT_NODE; ; current = parent[current]!) {
       const edge = viaEdge[current]!;

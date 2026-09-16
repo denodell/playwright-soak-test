@@ -1,5 +1,5 @@
-// Diffs two heap snapshots by node name, which turns "+7,800 nodes" into a
-// class name and the chain of retainers keeping it alive.
+// Diffs two heap snapshots by node name, so "+7,800 nodes" turns into a class
+// name and the chain of things still pointing at it.
 
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -20,26 +20,28 @@ import type {
   SoakRetainerHop,
 } from './types.js';
 
-// Well above the three the report shows: one leak spans several classes, and
-// they only group back into one finding if each of them has a path.
+// One leak usually spans several classes, and they only group back into a
+// single finding if each of them has a path, so this sits well above the three
+// the report goes on to show.
 const RETAINER_PATHS = 12;
 
-/** Growing JS names carried in the result. */
+/** How many growing JS names the result carries. */
 const GROWTH_NAMES = 5;
 
-/** One more of something is a coincidence, not a trend. */
+/** One more of something is a coincidence, so growth starts at two. */
 const GROWTH_FLOOR = 2;
 
-// `installSoakClock` stores pending timers in the injected clock's own object
-// graph, so a leaked timer is reached through our plumbing rather than the
-// app's. Kept in step with `page.clock` by name.
+// `installSoakClock` keeps pending timers in the injected clock's own object
+// graph, so a leaked timer is reached through the clock's objects rather than
+// through anything your app wrote. Matched by name, so it wants keeping in step
+// with `page.clock`.
 const CLOCK_ANCHOR = '__pwClock';
 const PENDING_TIMER = 'a pending timer';
 
 const BASELINE_FILE = 'baseline';
 const AFTER_FILE = 'after';
 
-/** Anything V8 keeps for itself is left out: it moves for its own reasons. */
+/** V8's own objects move for reasons that have nothing to do with your flow. */
 export function growthNameOf(snapshot: HeapSnapshot, node: number): string | null {
   const type = snapshot.nodeType(node);
   const name = snapshot.nodeName(node);
@@ -74,11 +76,17 @@ function countNames(snapshot: HeapSnapshot): NameCounts {
   return { detached, growth };
 }
 
-// Blink's plumbing between a listener and the function it calls. `EventListener`
-// survives, since that one says how the reference was made.
+// Blink puts these between a listener and the function it calls, and every
+// registration goes through the same ones, so they add hops without adding
+// anything you can act on. `EventListener` stays, since that one says how the
+// reference was made.
 const PLUMBING = new Set(['InternalNode', 'V8EventListener', 'Detached InternalNode']);
 
-/** Contexts, backing stores and root buckets: real links, never the answer. */
+/**
+ * Contexts, backing stores and the root buckets. They are real links in the
+ * chain, but none of them is ever the thing you need to change, so they collapse
+ * and hand their edge name to the node above.
+ */
 function isBookkeeping(snapshot: HeapSnapshot, node: number): boolean {
   if (node === ROOT_NODE) return true;
   const type = snapshot.nodeType(node);
@@ -88,7 +96,11 @@ function isBookkeeping(snapshot: HeapSnapshot, node: number): boolean {
   return name === '' || name.startsWith('system /') || name.startsWith('(');
 }
 
-/** DevTools' own grouping node. Rooted, so it is the shortest path and says nothing. */
+/**
+ * DevTools groups detached wrappers under a tree node so its Memory panel can
+ * list them. That node is rooted, so it is the shortest way back from every
+ * detached element, and it tells you nothing.
+ */
 function isDetachedGrouping(snapshot: HeapSnapshot, node: number): boolean {
   const name = snapshot.nodeName(node);
   return name.startsWith('Detached DOM tree') || name.startsWith('(Detached');
@@ -102,8 +114,8 @@ function describeNode(snapshot: HeapSnapshot, node: number): string {
 }
 
 /**
- * Root first, leaked object last. A collapsed hop hands its edge name to the
- * node above, so a closure keeps the variable it captured.
+ * Root first and the leaked object last. A collapsed hop hands its edge name to
+ * the node above it, so a closure keeps the name of the variable it captured.
  */
 export function buildRetainerPath(
   snapshot: HeapSnapshot,
@@ -122,7 +134,8 @@ export function buildRetainerPath(
     }
 
     const name = describeNode(snapshot, step.node);
-    // A DOM wrapper and the JS object behind it share a name.
+    // A DOM wrapper and the JS object behind it carry one name between them, so
+    // the chain would otherwise read `Window, Window`.
     if (name === previous) {
       carried = null;
       continue;
@@ -140,12 +153,16 @@ export function buildRetainerPath(
   return collapseClock(dropAnonymous(hops));
 }
 
-/** `window .__drawer-> Object .open-> fn` becomes `window.__drawer -> fn`. */
+/**
+ * An object literal has no name of its own, so a hop through one reads as
+ * `Object` and says nothing. Skipping it keeps each surviving hop's own edge,
+ * which turns `window .__drawer-> Object .open-> fn` into `window.__drawer -> fn`.
+ */
 function dropAnonymous(hops: SoakRetainerHop[]): SoakRetainerHop[] {
   return hops.filter((hop, i) => hop.node !== 'Object' || i === hops.length - 1);
 }
 
-/** Our plumbing becomes one hop, ending at the app's own callback. */
+/** Folds the injected clock into one hop, stopping at your own callback. */
 function collapseClock(hops: SoakRetainerHop[]): SoakRetainerHop[] {
   const start = hops.findIndex((h) => h.edge?.name === CLOCK_ANCHOR);
   if (start < 0) return hops;
@@ -162,7 +179,7 @@ function isAppCode(node: string): boolean {
   return node.startsWith('closure ') || node.startsWith('<');
 }
 
-/** The edge, when it names something a reader could search for. */
+/** The edge, when its name is something you could search your source for. */
 function namedEdge(
   snapshot: HeapSnapshot,
   holder: number,
@@ -170,7 +187,8 @@ function namedEdge(
 ): SoakRetainerHop['edge'] {
   if (!edge) return undefined;
   if (edge.type === 'element') {
-    // Between two DOM nodes this is Blink's tree order, not a reference the app made.
+    // Between two DOM nodes this index is Blink's own tree order rather than
+    // anything your code wrote, so saying "element 7" about a sibling helps nobody.
     if (snapshot.nodeType(holder) === 'native') return undefined;
     return { type: 'element', name: edge.name };
   }
@@ -179,7 +197,7 @@ function namedEdge(
   return undefined;
 }
 
-/** One that was not in the baseline, so the path leads somewhere this run made. */
+/** One that wasn't in the baseline, so the path leads to something this run made. */
 function representativeNode(
   after: HeapSnapshot,
   baselineIds: Set<number> | undefined,
@@ -215,7 +233,8 @@ export function pathForClass(
   const node = representativeNode(after, baselineIds.get(className), className);
   if (node === null) return [];
 
-  // Skip DevTools' grouping node first; take it only if nothing else reaches a root.
+  // DevTools' grouping node is skipped on the first attempt, since the path
+  // through it is always the shortest and never the one you want.
   const steps =
     after.retainerPath(node, { skipRetainer: (holder) => isDetachedGrouping(after, holder) }) ??
     after.retainerPath(node);
@@ -245,7 +264,8 @@ export function diffSnapshots(
   if (topClasses.length) {
     const ids = baselineIdsFor(baseline, topClasses);
     for (const entry of detached.slice(0, RETAINER_PATHS)) {
-      // Each walk is a pass over the whole graph, so the budget can run out here.
+      // Each walk is a pass over the whole graph, so on a big snapshot the budget
+      // can run out partway down the list.
       if (outOfTime?.()) {
         ranOut = true;
         break;
@@ -270,7 +290,8 @@ export function diffSnapshots(
 
 function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
-  // The loser of the race keeps running, so its rejection would surface unhandled.
+  // The loser of the race carries on, so its rejection is swallowed rather than
+  // left to turn up unhandled once the run has moved on.
   work.catch(() => { });
   const guard = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`${what} ran past diagnoseTimeoutMs`)), ms);
@@ -278,14 +299,15 @@ function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> 
   return Promise.race([work, guard]).finally(() => clearTimeout(timer));
 }
 
-/** Straight to disk: a real app's snapshot is hundreds of megabytes of chunks. */
+/** Written as the chunks arrive, since a real app's snapshot runs to hundreds of megabytes. */
 async function captureSnapshot(cdp: CDPSession, file: string, timeoutMs: number): Promise<void> {
   await cdp.send('HeapProfiler.enable');
   await cdp.send('HeapProfiler.collectGarbage');
 
   const stream = fs.createWriteStream(file);
-  // An unhandled stream `error` is an uncaughtException, which would take the
-  // worker down instead of leaving a note.
+  // A write can fail on a full disk or into an output directory that has gone
+  // away, and an unhandled `error` on a stream is an uncaughtException, which
+  // takes the Playwright worker down instead of leaving you a note.
   const failures: Error[] = [];
   stream.on('error', (error: Error) => void failures.push(error));
 
@@ -314,8 +336,9 @@ function slug(label: string): string {
 }
 
 /**
- * Two runs in one test share a directory and a default label, so the second
- * would write over the first and could then delete files it still points at.
+ * Two runs in one test share an output directory, and a label defaults to the
+ * test title, so without this the second run writes over the first and can then
+ * delete files the first result still points at.
  */
 const taken = new Map<string, number>();
 
@@ -333,14 +356,15 @@ function reason(error: unknown): string {
 
 export interface HeapDiagnosticsOptions {
   label: string;
-  /** Budget for the snapshot work alone. The passes in between do not spend it. */
+  /** Budget for the snapshot work alone, since the passes in between don't spend it. */
   timeoutMs: number;
   testInfo?: TestInfo;
 }
 
 /**
  * The baseline snapshot has to be taken before anyone knows whether the run
- * fails, so it is taken whenever diagnosis is on and dropped if it goes unused.
+ * fails, so it goes ahead whenever diagnosis is on at all and is thrown away
+ * again if it turns out not to be wanted.
  */
 export class HeapDiagnostics {
   private readonly cdp: CDPSession;
@@ -375,7 +399,7 @@ export class HeapDiagnostics {
     return this.options.timeoutMs - this.spentMs;
   }
 
-  /** Runs a stage against the shared budget, recording a note instead of throwing. */
+  /** Runs a stage against the shared budget, leaving a note rather than throwing. */
   private async stage<T>(work: (budgetMs: number) => Promise<T>): Promise<T | null> {
     if (this.note) return null;
     const budget = this.remainingMs();
@@ -409,14 +433,15 @@ export class HeapDiagnostics {
     });
   }
 
-  /** Parses, diffs, attaches the snapshots, and hands back what it found. */
+  /** Parses both snapshots, diffs them, attaches them, and returns what it found. */
   async build(): Promise<SoakDiagnosis> {
     const diff = await this.stage(async (budget) => {
       if (!this.captured.baseline || !this.captured.after) {
         throw new Error('both snapshots are needed for a diff');
       }
 
-      // `JSON.parse` cannot be interrupted, so the budget is checked between steps.
+      // `JSON.parse` is synchronous and can't be interrupted, so the budget is
+      // checked between the steps instead. Everything but one parse is bounded.
       const deadline = Date.now() + budget;
       const outOfTime = (): boolean => Date.now() > deadline;
       const guard = (step: string): void => {
@@ -448,7 +473,7 @@ export class HeapDiagnostics {
     return diagnosis;
   }
 
-  /** Attaches both snapshots so they can be dragged into DevTools → Memory. */
+  /** Attaches both, so you can drag them into DevTools → Memory yourself. */
   private async attach(): Promise<{ baseline: string; after: string } | null> {
     const { testInfo } = this.options;
     if (!testInfo || !this.captured.baseline || !this.captured.after) return null;
@@ -467,7 +492,7 @@ export class HeapDiagnostics {
     }
   }
 
-  /** Drops both files, for a run that passed with `diagnose: 'on-failure'`. */
+  /** Drops both files, which is what a passing `diagnose: 'on-failure'` run wants. */
   async discard(): Promise<void> {
     await Promise.all([
       fsp.rm(this.files.baseline, { force: true }),

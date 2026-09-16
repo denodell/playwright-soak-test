@@ -79,8 +79,8 @@ export interface SoakOptions {
   /** Name used in the failure message and the reporter. Defaults to the test title. */
   label?: string;
   /**
-   * Heap snapshots either side of the run, diffed to name what is leaking and
-   * what is holding it. Default `'on-failure'`.
+   * Heap snapshots either side of the run, diffed to name what leaked and what
+   * still references it. Default `'on-failure'`.
    */
   diagnose?: SoakDiagnoseMode;
   /**
@@ -104,14 +104,14 @@ export interface SoakFailure {
 }
 
 /**
- * One holder in a retainer chain, and the slot the next holder down sits in.
- * Structured rather than pre-formatted, because the reporter reads the result
- * back out of a JSON attachment and has to be able to regroup and relabel it.
+ * One link in a retainer chain, and the slot the next one down sits in. These
+ * arrive structured rather than pre-formatted, since the reporter reads the
+ * result back out of a JSON attachment and regroups and relabels it from there.
  */
 export interface SoakRetainerHop {
-  /** What is holding on: `window`, `EventListener`, `closure onResize`, `<section class="x">`. */
+  /** The retainer itself, such as `window`, `EventListener` or `closure onResize`. */
   node: string;
-  /** How this hop reaches the next one. Absent on the last hop, and on unnamed links. */
+  /** How this link reaches the next one. The last link has none, and nor do unnamed edges. */
   edge?: { type: 'property' | 'element' | 'context'; name: string };
 }
 
@@ -123,8 +123,9 @@ export interface SoakDetachedClass {
   after: number;
   delta: number;
   /**
-   * Holders of one example, root first and the leaked object last, with internal
-   * hops collapsed. Empty when no path was walked or none reached the root.
+   * Retainers of one example, root first and the leaked object last, with the
+   * internal hops collapsed. Empty when no path was walked, or none reached the
+   * root.
    */
   retainerPath: SoakRetainerHop[];
 }
