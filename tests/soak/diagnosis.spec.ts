@@ -65,7 +65,7 @@ test('names the drawer as one leak, and the listener holding it', async ({ page,
 
   // Four detached classes make one finding, said once in a sentence.
   expect(message).toContain('A listener on window is still registered');
-  expect(message).toContain('`onResize` points at');
+  expect(message).toContain('`onResize` still references');
   // The box and the trend line already give the rate, so the sentence does not.
   expect(message).not.toContain('one per pass');
   // `root` is the variable name for the thing the sentence already describes.
@@ -73,7 +73,7 @@ test('names the drawer as one leak, and the listener holding it', async ({ page,
   expect(message).toContain('window \u2192 EventListener \u2192 onResize()');
   expect(message).not.toContain('Detached <div>');
   // And it stops guessing at a cause once the snapshots have named one.
-  expect(message).not.toContain('Most often a listener stays registered');
+  expect(message).not.toContain('Usually a listener stays registered');
 });
 
 test('the array on window shows up as heap growth, with nothing detached', async ({
@@ -106,7 +106,7 @@ test('the array on window shows up as heap growth, with nothing detached', async
   expect(entries).toBeDefined();
   expect(entries!.delta).toBeGreaterThanOrEqual((PASSES - result.warmup) * 50);
 
-  expect(message).toContain('this is data the app keeps');
+  expect(message).toContain('this is data the app is keeping');
   expect(message).toContain('AuditEntry');
 });
 
@@ -138,7 +138,7 @@ test('a timer leak is not blamed on the clock this library installed', async ({ 
   ]);
 
   expect(message).toContain('A timer is still pending');
-  expect(message).toContain('`tick` points at');
+  expect(message).toContain('`tick` still references');
   // None of Playwright's clock reaches the report, or the JSON behind it.
   for (const text of [message, JSON.stringify(result.diagnosis)]) {
     expect(text).not.toContain('ClockController');
@@ -309,6 +309,6 @@ test.describe('with diagnosis left alone', () => {
     expect(snapshotsIn(testInfo.outputPath())).toEqual([]);
     expect(message).not.toContain('is still registered');
     // And with no snapshots to read, the report falls back to guessing.
-    expect(message).toContain('Most often a listener stays registered');
+    expect(message).toContain('Usually a listener stays registered');
   });
 });

@@ -57,7 +57,7 @@ test('names the component that leaked and the registry holding it', async ({ pag
   expect(report).toContain('<section class="inspector">');
 
   // Four detached classes, one leak, said once.
-  expect(report.match(/still references/g)).toHaveLength(1);
+  expect(report.match(/keeps growing/g)).toHaveLength(1);
 });
 
 test('the fixed build removes itself from the registry and stays flat', async ({ page, soak }) => {

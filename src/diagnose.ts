@@ -96,9 +96,11 @@ export function interpret(result: SoakResult): string[] {
   if (stepped) {
     const which = stepped === nodes ? 'DOM nodes' : 'Listeners';
     lines.push(
-      `${which} jumped once at pass ${stepped.stepAtPass} and held there. Something created on` +
-      ' that pass is still around, and the count has been flat since.',
-      `Raise the threshold above ${formatCount(Math.abs(stepped.total))} if that's expected.`,
+      ...sentence(
+        `${which} jumped once at pass ${stepped.stepAtPass} and have stayed there. Whatever that`
+        + ' pass created is still in memory.',
+      ),
+      ...sentence(`Raise the threshold above ${formatCount(Math.abs(stepped.total))} if that's expected.`),
     );
     return lines;
   }
@@ -107,9 +109,11 @@ export function interpret(result: SoakResult): string[] {
   if (levelled) {
     const which = levelled === nodes ? 'DOM nodes' : 'Listeners';
     lines.push(
-      `${which} climbed over the early passes and has been flat since. A cache filling up or a` +
-      ' pool reaching its working size does this. A leak would still be climbing.',
-      `Raise the threshold above ${formatCount(Math.abs(levelled.total))} if that's expected.`,
+      ...sentence(
+        `${which} climbed over the early passes and have been flat since. A cache filling up does`
+        + ' that, or a pool reaching its working size. A leak would still be climbing.',
+      ),
+      ...sentence(`Raise the threshold above ${formatCount(Math.abs(levelled.total))} if that's expected.`),
     );
     return lines;
   }
@@ -119,39 +123,43 @@ export function interpret(result: SoakResult): string[] {
 
   if (listenersLeak && nodesLeak) {
     lines.push(
-      `Every pass leaks ${formatPerPass(nodes.perPass).replace('+', '')} nodes and` +
-      ` ${formatPerPass(listeners.perPass).replace('+', '')} listeners, starting from the first one.`,
+      ...sentence(
+        `Every pass leaks ${formatPerPass(nodes.perPass).replace('+', '')} nodes and`
+        + ` ${formatPerPass(listeners.perPass).replace('+', '')} listeners, starting from the first one.`,
+      ),
     );
     if (guessing) {
       lines.push(
-        'Most often a listener stays registered after the flow ends, and its callback still points',
-        'at the elements it was created for, so they stay in memory too.',
+        ...sentence(
+          'Usually a listener stays registered after the flow ends, and its callback still'
+          + ' references the elements it was created for, so they stay in memory too.',
+        ),
       );
     }
   } else if (listenersLeak) {
-    lines.push(
-      'The listener count goes up when your code adds a listener and down when it removes one.' +
-      ' This one keeps going up, so something is adding a listener each pass and it stays' +
-      ' registered.',
-    );
+    lines.push(...sentence('Something adds a listener every pass and never removes it.'));
   } else if (nodesLeak) {
     lines.push(
-      'DOM nodes are climbing while the listener count stays flat.' +
-      (guessing
-        ? ' Elements are coming off the page but your JavaScript still points at them, so they' +
-        ' stay in memory. An array that keeps growing is a common cause, or a variable a' +
-        ' long-lived function closed over.'
-        : ''),
+      ...sentence(
+        'DOM nodes are climbing while the listener count stays flat.'
+        + (guessing
+          ? ' Elements are coming off the page and your JavaScript still references them, so they'
+          + ' stay in memory. Usually an array that keeps growing, or a variable captured by a'
+          + ' function that sticks around.'
+          : ''),
+      ),
     );
   } else if (nodes.shape === 'noisy' || listeners.shape === 'noisy') {
     lines.push(
-      'Growth is uneven, so this could be noise. A second run will tell you whether it is real.',
+      ...sentence("The growth is uneven, so this might be noise. A second run will say whether it's real."),
     );
   }
 
   lines.push(
-    'All of this assumes your flow ends on the screen it started on. A flow that adds to the',
-    'page on purpose will grow whatever you do.',
+    ...sentence(
+      'All of this assumes your flow ends on the screen it started on. A flow that adds to the'
+      + ' page on purpose will grow whatever you do.',
+    ),
   );
 
   return lines;
@@ -321,12 +329,12 @@ function describeLeak(leak: Leak, result: SoakResult): string[] {
     // scope, so V8 often credits that scope to a function from another file.
     const named = variable ? ` called \`${variable}\`` : '';
     cause = `${collection[0]!.toUpperCase()}${collection.slice(1)}${named} keeps growing, and`
-      + ` it still references ${what}.`;
+      + ` ${what} is still in it.`;
   } else if (fn) {
     // No variable name here. When the variable is the leaked object itself, `root`
     // or `state` adds nothing to the sentence.
     cause = anchored
-      ? `Its callback \`${fn}\` points at ${what}.`
+      ? `Its callback \`${fn}\` still references ${what}.`
       : `\`${fn}\` still references ${what}.`;
   } else if (global) {
     cause = `Something on \`${global}\` still references ${what}.`;
@@ -356,7 +364,8 @@ export function describeDiagnosis(result: SoakResult): string[] {
 
   const rest = leaks.length - SHOWN;
   if (rest > 0) {
-    lines.push('', `The run found ${formatCount(rest)} more ${rest === 1 ? 'leak' : 'leaks'} like this.`);
+    const more = rest === 1 ? 'One more leak looks' : `${formatCount(rest)} more leaks look`;
+    lines.push('', `${more} like this one.`);
   }
 
   const growth = diagnosis.growth.map((g) => `${g.name} ${formatSigned(g.delta)}`).join(', ');
@@ -370,16 +379,16 @@ export function describeDiagnosis(result: SoakResult): string[] {
       .join(', ');
     lines.push(
       ...sentence(
-        `Elements are coming off the page and staying in memory: ${classes}. No chain back to` +
-        ' a root came out of the snapshot, so the attached snapshots are the place to look.',
+        `Elements are coming off the page and staying in memory: ${classes}. Nothing in the` +
+        ' snapshot led back to a root, so there is no chain to show.',
       ),
     );
   } else if (!leaks.length && diagnosis.growth.length) {
     // Nothing came off the page, so the JS names are all there is to report.
     lines.push(
       ...sentence(
-        'Nothing came off the page, so this is data the app keeps rather than DOM it removed' +
-        ` and still references. Most of the growth is in ${growth}.`,
+        'Nothing came off the page, so this is data the app is keeping, not DOM it left behind.' +
+        ` Most of the growth is in ${growth}.`,
       ),
     );
   }
@@ -418,8 +427,8 @@ function notes(result: SoakResult): string[] {
   if (!result.exposeGc) {
     lines.push(
       'Chromium was started without `--expose-gc`, so garbage collection is a hint the browser' +
-      ' can ignore and the counts move between readings. Adding' +
-      ' `launchOptions: soakLaunchOptions` to your config makes it exact.',
+      ' can ignore and the counts move between readings. `launchOptions: soakLaunchOptions` in' +
+      ' your config fixes that.',
     );
   }
 
