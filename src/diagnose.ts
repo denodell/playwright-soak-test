@@ -96,10 +96,7 @@ export function interpret(result: SoakResult): string[] {
   if (stepped) {
     const which = stepped === nodes ? 'DOM nodes' : 'Listeners';
     lines.push(
-      ...sentence(
-        `${which} jumped once at pass ${stepped.stepAtPass} and have stayed there. Whatever that`
-        + ' pass created is still in memory.',
-      ),
+      ...sentence(`${which} jumped once at pass ${stepped.stepAtPass} and have stayed there.`),
       ...sentence(`Raise the threshold above ${formatCount(Math.abs(stepped.total))} if that's expected.`),
     );
     return lines;
@@ -110,8 +107,8 @@ export function interpret(result: SoakResult): string[] {
     const which = levelled === nodes ? 'DOM nodes' : 'Listeners';
     lines.push(
       ...sentence(
-        `${which} climbed over the early passes and have been flat since. A cache filling up does`
-        + ' that, or a pool reaching its working size. A leak would still be climbing.',
+        `${which} climbed over the early passes and have been flat since, which is what a cache`
+        + ' filling up looks like. A real leak would still be climbing.',
       ),
       ...sentence(`Raise the threshold above ${formatCount(Math.abs(levelled.total))} if that's expected.`),
     );
@@ -131,21 +128,21 @@ export function interpret(result: SoakResult): string[] {
     if (guessing) {
       lines.push(
         ...sentence(
-          'Usually a listener stays registered after the flow ends, and its callback still'
-          + ' references the elements it was created for, so they stay in memory too.',
+          "Usually it's a listener that stays registered after the flow ends, still referencing"
+          + ' the elements it was created for.',
         ),
       );
     }
   } else if (listenersLeak) {
-    lines.push(...sentence('Something adds a listener every pass and never removes it.'));
+    lines.push(...sentence('Every pass adds a listener and none of them are removed.'));
   } else if (nodesLeak) {
     lines.push(
       ...sentence(
         'DOM nodes are climbing while the listener count stays flat.'
         + (guessing
-          ? ' Elements are coming off the page and your JavaScript still references them, so they'
-          + ' stay in memory. Usually an array that keeps growing, or a variable captured by a'
-          + ' function that sticks around.'
+          ? ' Elements are leaving the page and your code still references them, so they stay in'
+          + ' memory. Usually an array that keeps growing, or a function that captured them and is'
+          + ' still around.'
           : ''),
       ),
     );
@@ -380,14 +377,14 @@ export function describeDiagnosis(result: SoakResult): string[] {
     lines.push(
       ...sentence(
         `Elements are coming off the page and staying in memory: ${classes}. Nothing in the` +
-        ' snapshot led back to a root, so there is no chain to show.',
+        ' snapshot showed what is keeping them, so there is no chain to print.',
       ),
     );
   } else if (!leaks.length && diagnosis.growth.length) {
     // Nothing came off the page, so the JS names are all there is to report.
     lines.push(
       ...sentence(
-        'Nothing came off the page, so this is data the app is keeping, not DOM it left behind.' +
+        'Nothing came off the page, so this is data your app is keeping, not elements it removed.' +
         ` Most of the growth is in ${growth}.`,
       ),
     );

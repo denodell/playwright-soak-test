@@ -30,7 +30,7 @@ test('the leak build fails on the listener count while the node count stays flat
   expect(Math.abs(result.trends.nodes.total)).toBeLessThanOrEqual(2);
   expect(result.failures.map((f) => f.metric)).toEqual(['listeners']);
 
-  expect(message).toContain('adds a listener every pass and never removes it');
+  expect(message).toContain('Every pass adds a listener and none of them are removed');
 });
 
 test('the fixed build removes the listener and stays flat', async ({ page, soak }) => {
