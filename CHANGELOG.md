@@ -13,7 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `growth`, the JS constructors and named closures that grew most
 - Detached classes that share a chain reported as one leak, not one finding per class
 - Retainer chains through the virtual clock reported as `a pending timer`
-- `diagnose` option, off by default: `'on-failure'` takes snapshots when a run fails, `'always'` on a clean run too
+- `diagnose` option, `'on-failure'` by default: `'always'` reports on a clean run too, `'off'` skips the snapshots
 - `keepSnapshots` option, off by default, attaching both snapshots for DevTools rather than deleting them after the diff
 - `diagnoseTimeoutMs` option, default 60,000, after which the diagnosis is dropped with a note
 - Snapshots left unparsed with a note when the worker has not the heap to read one, rather than risk taking the run down
@@ -29,7 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Detached classes group into one leak by their whole shared chain, not by the name at one depth
 - A code-split chunk's `Module` and `Generator` objects collapse out of the chain, keeping the variable name behind them
 
-Diagnosis is off by default, so a suite upgrading from 0.1.0 runs exactly as it did. Turning it on costs two heap snapshots on a failing run and one on a passing run.
+A suite upgrading from 0.1.0 gets the diagnosis on a failing run without changing anything. It costs one heap snapshot a run, taken at the baseline pass before the outcome is known, and a second one when the run fails. Both are deleted afterwards unless `keepSnapshots` is on. `diagnose: 'off'` restores the 0.1.0 behavior.
 
 ## [0.1.0] - 2026-08-05
 

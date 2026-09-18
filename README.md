@@ -112,7 +112,7 @@ Defaults go in `use: { soakOptions }` in the config, or at the top of a spec wit
 | `tracePasses` | `25` | Passes read one at a time at the start of the run. |
 | `sampleEvery` | derived | Read every Nth pass after that. |
 | `label` | test title | Name used in the report and the reporter. |
-| `diagnose` | `'off'` | Heap snapshots either side of the run, diffed to name what leaked. `'on-failure'` does it when a run fails, `'always'` on a clean run too. Off by default, since a snapshot of a real app takes a few seconds. See [Diagnosis](#diagnosis). |
+| `diagnose` | `'on-failure'` | Heap snapshots either side of the run, diffed to name what leaked. `'always'` does it on a clean run too, `'off'` skips it. The baseline snapshot is taken on every run, since nothing knows the outcome that early, which on a real app is a few seconds. See [Diagnosis](#diagnosis). |
 | `keepSnapshots` | `false` | Attach both snapshots to the test result, for opening in DevTools. Off by default, since a real app's pair runs to hundreds of megabytes per failing test. The diagnosis is worked out either way. |
 | `diagnoseTimeoutMs` | `60000` | How long the snapshot work has before the diagnosis is dropped. Going over leaves a note on the result and never fails the run. |
 
@@ -186,13 +186,7 @@ The reporter prints a box per test and a table at the end of the run. On GitHub 
 
 A count going up tells you something leaked. It doesn't tell you what, so a run can also take a heap snapshot at the baseline pass and another at the end, and work out what leaked from the difference.
 
-A snapshot of a real app is hundreds of megabytes and takes a few seconds, so this is off until you ask for it:
-
-```ts
-test.use({ soakOptions: { diagnose: 'on-failure' } });
-```
-
-A failing run then prints this under the box:
+This happens on a failing run without being asked for. A failing run prints this under the box:
 
 ```
   A listener on window is still registered. Its callback `onResize` points at the
@@ -248,7 +242,7 @@ The same findings are on `result.diagnosis`, under `detached`, `growth` and `sna
 The report is a summary: the top three leaks, one example of each class, and a chain capped at eight hops. When that isn't enough, `keepSnapshots` attaches both files to the test result, and DevTools → Memory opens either one for the full retainer tree:
 
 ```ts
-test.use({ soakOptions: { diagnose: 'on-failure', keepSnapshots: true } });
+test.use({ soakOptions: { keepSnapshots: true } });
 ```
 
 ```sh
@@ -257,7 +251,7 @@ npx playwright show-report
 
 They are deleted otherwise, once the diff has read them. A real app's pair runs to hundreds of megabytes, which is a lot to carry out of CI for every failing test, and the finding on `result.diagnosis` is the same either way.
 
-`'always'` goes further and reports on a clean run too, which shows what a flow allocates before anything is wrong. Either way, `'on-failure'` still takes the baseline snapshot on every run, since nothing knows the outcome that early, and deletes it again when the run passes.
+`'always'` goes further and reports on a clean run too, which shows what a flow allocates before anything is wrong. Either way the baseline snapshot is taken on every run, since nothing knows the outcome that early, and deleted again when the run passes. On a real app that is a few seconds a run, and `diagnose: 'off'` skips it.
 
 If the snapshot work runs past `diagnoseTimeoutMs` the diagnosis is dropped, and the run still passes or fails on its own counts.
 

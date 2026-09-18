@@ -47,7 +47,7 @@ const DEFAULTS = {
   waitForResponseTimeout: 5_000,
   progressEveryMs: 30_000,
   clockAdvanceMs: 18_000,
-  diagnose: 'off',
+  diagnose: 'on-failure',
   diagnoseTimeoutMs: 60_000,
   keepSnapshots: false,
 } as const;

@@ -5,7 +5,7 @@ import { SoakLeakError } from '../../src/soak.js';
 
 const PASSES = 25;
 
-test.use({ soakOptions: { clock: false, passes: PASSES, diagnose: 'on-failure' } });
+test.use({ soakOptions: { clock: false, passes: PASSES } });
 
 function snapshotsIn(dir: string): string[] {
   if (!fs.existsSync(dir)) return [];
@@ -285,30 +285,24 @@ test('a flow that throws does not leave its baseline snapshot behind', async ({
   expect(snapshotsIn(testInfo.outputPath())).toEqual([]);
 });
 
-test.describe('with diagnosis left alone', () => {
-  test.use({ soakOptions: { clock: false, passes: PASSES } });
+test('a failing run is diagnosed without being asked', async ({ page, soak }, testInfo) => {
+  await page.goto('/leak/');
+  await page.waitForFunction(() => window.__drawer !== undefined);
 
-  test('a failing run says nothing extra until diagnosis is asked for', async ({
-    page,
-    soak,
-  }, testInfo) => {
-    await page.goto('/leak/');
-    await page.waitForFunction(() => window.__drawer !== undefined);
+  const error = await soak.run(() => openAndCloseDrawer(page)).then(
+    () => null,
+    (e: unknown) => e,
+  );
 
-    const error = await soak.run(() => openAndCloseDrawer(page)).then(
-      () => null,
-      (e: unknown) => e,
-    );
+  expect(error).toBeInstanceOf(SoakLeakError);
+  const { result, message } = error as SoakLeakError;
 
-    expect(error).toBeInstanceOf(SoakLeakError);
-    const { result, message } = error as SoakLeakError;
+  // `on-failure` is the default, so a leak names its cause with nothing set.
+  expect(result.diagnosis!.detached.length).toBeGreaterThan(0);
+  expect(message).toContain('is still registered');
+  expect(message).not.toContain('probably what is keeping those nodes');
 
-    // Off is the default, so an existing suite upgrading to this version takes no
-    // snapshots and reads exactly as it did before.
-    expect(result.diagnosis).toBeUndefined();
-    expect(snapshotsIn(testInfo.outputPath())).toEqual([]);
-    expect(message).not.toContain('is still registered');
-    // And with no snapshots to read, the report falls back to guessing.
-    expect(message).toContain('probably what is keeping those nodes');
-  });
+  // The files still go, since keepSnapshots is the one that is off by default.
+  expect(result.diagnosis!.snapshots).toBeUndefined();
+  expect(snapshotsIn(testInfo.outputPath())).toEqual([]);
 });
