@@ -73,7 +73,7 @@ test('names the drawer as one leak, and the listener holding it', async ({ page,
   expect(message).toContain('window \u2192 EventListener \u2192 onResize()');
   expect(message).not.toContain('Detached <div>');
   // And it stops guessing at a cause once the snapshots have named one.
-  expect(message).not.toContain("Usually it's a listener that stays registered");
+  expect(message).not.toContain('probably what is keeping those nodes');
 });
 
 test('the array on window shows up as heap growth, with nothing detached', async ({
@@ -106,7 +106,7 @@ test('the array on window shows up as heap growth, with nothing detached', async
   expect(entries).toBeDefined();
   expect(entries!.delta).toBeGreaterThanOrEqual((PASSES - result.warmup) * 50);
 
-  expect(message).toContain('this is data your app is keeping');
+  expect(message).toContain('the growth is in plain data rather than DOM');
   expect(message).toContain('AuditEntry');
 });
 
@@ -309,6 +309,6 @@ test.describe('with diagnosis left alone', () => {
     expect(snapshotsIn(testInfo.outputPath())).toEqual([]);
     expect(message).not.toContain('is still registered');
     // And with no snapshots to read, the report falls back to guessing.
-    expect(message).toContain("Usually it's a listener that stays registered");
+    expect(message).toContain('probably what is keeping those nodes');
   });
 });

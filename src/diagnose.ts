@@ -107,8 +107,8 @@ export function interpret(result: SoakResult): string[] {
     const which = levelled === nodes ? 'DOM nodes' : 'Listeners';
     lines.push(
       ...sentence(
-        `${which} climbed over the early passes and have been flat since, which is what a cache`
-        + ' filling up looks like. A real leak would still be climbing.',
+        `${which} climbed early on and have been flat since. A leak would still be climbing, so`
+        + ' this looks more like a cache filling up.',
       ),
       ...sentence(`Raise the threshold above ${formatCount(Math.abs(levelled.total))} if that's expected.`),
     );
@@ -122,40 +122,33 @@ export function interpret(result: SoakResult): string[] {
     lines.push(
       ...sentence(
         `Every pass leaks ${formatPerPass(nodes.perPass).replace('+', '')} nodes and`
-        + ` ${formatPerPass(listeners.perPass).replace('+', '')} listeners, starting from the first one.`,
+        + ` ${formatPerPass(listeners.perPass).replace('+', '')} listeners.`,
       ),
     );
     if (guessing) {
       lines.push(
-        ...sentence(
-          "Usually it's a listener that stays registered after the flow ends, still referencing"
-          + ' the elements it was created for.',
-        ),
+        ...sentence('The listeners are probably what is keeping those nodes in memory.'),
       );
     }
   } else if (listenersLeak) {
-    lines.push(...sentence('Every pass adds a listener and none of them are removed.'));
+    lines.push(...sentence('Your app adds a listener every pass and never removes it.'));
   } else if (nodesLeak) {
     lines.push(
       ...sentence(
-        'DOM nodes are climbing while the listener count stays flat.'
-        + (guessing
-          ? ' Elements are leaving the page and your code still references them, so they stay in'
-          + ' memory. Usually an array that keeps growing, or a function that captured them and is'
-          + ' still around.'
-          : ''),
+        'Elements are leaving the page but your code still references them.'
+        + (guessing ? ' Usually an array that keeps growing, or a closure that captured them.' : ''),
       ),
     );
   } else if (nodes.shape === 'noisy' || listeners.shape === 'noisy') {
     lines.push(
-      ...sentence("The growth is uneven, so this might be noise. A second run will say whether it's real."),
+      ...sentence('The growth is uneven, so this might just be noise. Another run would tell you.'),
     );
   }
 
   lines.push(
     ...sentence(
-      'All of this assumes your flow ends on the screen it started on. A flow that adds to the'
-      + ' page on purpose will grow whatever you do.',
+      'This all assumes your flow ends where it started. If it adds to the page on purpose, it'
+      + ' will grow no matter what.',
     ),
   );
 
@@ -376,16 +369,16 @@ export function describeDiagnosis(result: SoakResult): string[] {
       .join(', ');
     lines.push(
       ...sentence(
-        `Elements are coming off the page and staying in memory: ${classes}. Nothing in the` +
-        ' snapshot showed what is keeping them, so there is no chain to print.',
+        `Elements are coming off the page and staying in memory: ${classes}. The snapshot did` +
+        ' not show what is keeping them.',
       ),
     );
   } else if (!leaks.length && diagnosis.growth.length) {
     // Nothing came off the page, so the JS names are all there is to report.
     lines.push(
       ...sentence(
-        'Nothing came off the page, so this is data your app is keeping, not elements it removed.' +
-        ` Most of the growth is in ${growth}.`,
+        'Nothing came off the page, so the growth is in plain data rather than DOM.' +
+        ` Most of it is in ${growth}.`,
       ),
     );
   }
@@ -424,8 +417,8 @@ function notes(result: SoakResult): string[] {
   if (!result.exposeGc) {
     lines.push(
       'Chromium was started without `--expose-gc`, so garbage collection is a hint the browser' +
-      ' can ignore and the counts move between readings. `launchOptions: soakLaunchOptions` in' +
-      ' your config fixes that.',
+      ' can ignore and the counts move between readings. Adding' +
+      ' `launchOptions: soakLaunchOptions` to your config fixes it.',
     );
   }
 
