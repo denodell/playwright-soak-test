@@ -369,8 +369,8 @@ export function describeDiagnosis(result: SoakResult): string[] {
       .join(', ');
     lines.push(
       ...sentence(
-        `Elements are coming off the page and staying in memory: ${classes}. No chain back to` +
-        ' your code turned up in the snapshot.',
+        `Elements are coming off the page and staying in memory: ${classes}. Nothing turned up` +
+        ' that still references them.',
       ),
     );
   } else if (!leaks.length && diagnosis.growth.length) {
