@@ -111,15 +111,15 @@ test('detached classes with no walkable chain are reported, not called clean', (
   expect(lines).toContain('Elements are coming off the page and staying in memory');
   expect(lines).toContain('<div> +240');
   // Elements did come off the page, so the heap-only wording would be wrong.
-  expect(lines).not.toContain('Nothing came off the page');
+  expect(lines).not.toContain('Nothing leaked from the DOM');
 });
 
-test('growth with nothing detached reads as data the app keeps', () => {
+test('growth with nothing detached reads as a JavaScript leak', () => {
   const lines = describeDiagnosis(
     resultWith({ detached: [], growth: [{ name: 'AuditEntry', delta: 1000 }] }),
   ).join('\n');
 
-  expect(lines).toContain('Nothing came off the page');
+  expect(lines).toContain('Nothing leaked from the DOM');
   expect(lines).toContain('AuditEntry +1,000');
 });
 

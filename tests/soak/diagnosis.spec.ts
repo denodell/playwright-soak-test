@@ -106,7 +106,7 @@ test('the array on window shows up as heap growth, with nothing detached', async
   expect(entries).toBeDefined();
   expect(entries!.delta).toBeGreaterThanOrEqual((PASSES - result.warmup) * 50);
 
-  expect(message).toContain('the growth is in plain data rather than DOM');
+  expect(message).toContain('Nothing leaked from the DOM');
   expect(message).toContain('AuditEntry');
 });
 

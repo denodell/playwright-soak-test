@@ -369,16 +369,15 @@ export function describeDiagnosis(result: SoakResult): string[] {
       .join(', ');
     lines.push(
       ...sentence(
-        `Elements are coming off the page and staying in memory: ${classes}. The snapshot did` +
-        ' not show what is keeping them.',
+        `Elements are coming off the page and staying in memory: ${classes}. No chain back to` +
+        ' your code turned up in the snapshot.',
       ),
     );
   } else if (!leaks.length && diagnosis.growth.length) {
     // Nothing came off the page, so the JS names are all there is to report.
     lines.push(
       ...sentence(
-        'Nothing came off the page, so the growth is in plain data rather than DOM.' +
-        ` Most of it is in ${growth}.`,
+        `Nothing leaked from the DOM. The growth is in ${growth}.`,
       ),
     );
   }
