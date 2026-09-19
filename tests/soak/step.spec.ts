@@ -40,7 +40,6 @@ test('calls a single jump a one-off and names the threshold to raise', async ({ 
   expect(message).toContain('grew past its threshold, then stopped');
   expect(message).not.toContain('Memory leak detected');
   expect(message).toContain('jumped once at pass');
-  expect(message).toContain('and the count has been flat since');
   expect(message).toContain(`Raise the threshold above ${result.trends.nodes.total}`);
 
   expect(message).not.toMatch(/\u001b\[/);

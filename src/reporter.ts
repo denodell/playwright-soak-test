@@ -5,7 +5,7 @@ import type {
   TestCase,
   TestResult,
 } from '@playwright/test/reporter';
-import { buildFailureMessage, describeMetrics, isOneOff } from './diagnose.js';
+import { buildFailureMessage, describeDiagnosis, describeMetrics, isOneOff } from './diagnose.js';
 import { formatPercent, formatSigned, percentGrowth } from './stats.js';
 import type { SoakResult } from './types.js';
 
@@ -119,6 +119,13 @@ export default class SoakReporter implements Reporter {
           : 'LEAK DETECTED'
         : 'PASS';
       console.log(`\n${box(soak.label, verdict, lines)}`);
+
+      // Under the box rather than inside it: a retainer chain is as long as it
+      // needs to be, and boxing it would set the width of every other row.
+      const diagnosis = describeDiagnosis(soak);
+      if (diagnosis.length) {
+        console.log(diagnosis.map((l) => (l ? `  ${l}` : '')).join('\n'));
+      }
 
       if (soak.leaking && process.env.GITHUB_ACTIONS) {
         console.log(
