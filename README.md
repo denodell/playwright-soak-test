@@ -216,8 +216,7 @@ The other two common causes look like this:
 A leak that stays out of the DOM has no element to name, so you get the class names that grew instead:
 
 ```
-  Nothing came off the page, so this is data the app keeps rather than DOM it removed and
-  still references. Most of the growth is in Array +850, AuditEntry +850.
+  Nothing leaked from the DOM. The growth is in Array +850, AuditEntry +850.
 ```
 
 ### Bundled builds
