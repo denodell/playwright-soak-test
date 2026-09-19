@@ -29,6 +29,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Detached classes group into one leak by their whole shared chain, not by the name at one depth
 - A code-split chunk's `Module` and `Generator` objects collapse out of the chain, keeping the variable name behind them
 
+### Fixed
+
+- Chromium installed on `postinstall`, so the tests run in a fresh clone without fetching the browser by hand ([#1](https://github.com/denodell/playwright-soak-test/pull/1), thanks [@brentguf](https://github.com/brentguf))
+
 A suite upgrading from 0.1.0 gets the diagnosis on a failing run without changing anything. It costs one heap snapshot a run, taken at the baseline pass before the outcome is known, and a second one when the run fails. Both are deleted afterwards unless `keepSnapshots` is on. `diagnose: 'off'` restores the 0.1.0 behavior.
 
 ## [0.1.0] - 2026-08-05
