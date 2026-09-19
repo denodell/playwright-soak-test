@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `retainerPath`, the chain of retainers from the root to the leaked object, as `{ node, edge }` hops
 - `growth`, the JS constructors and named closures that grew most
 - Detached classes that share a chain reported as one leak, not one finding per class
-- Retainer chains through the virtual clock reported as `a pending timer`
+- Retainer chains through the virtual clock reported as `a pending timer`, marked `kind: 'timer'` so the wording is free to change
 - `diagnose` option, `'on-failure'` by default: `'always'` reports on a clean run too, `'off'` skips the snapshots
 - `keepSnapshots` option, off by default, attaching both snapshots for DevTools rather than deleting them after the diff
 - `diagnoseTimeoutMs` option, default 60,000, after which the diagnosis is dropped with a note

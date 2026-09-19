@@ -11,10 +11,9 @@ import {
   buildRetainerPath,
   diffSnapshots,
   growthNameOf,
-  oversizeReason,
-  parseBudgetBytes,
   pathForClass,
-} from '../../src/heap-diagnosis.js';
+} from '../../src/heap-analysis.js';
+import { oversizeReason, parseBudgetBytes } from '../../src/heap-capture.js';
 
 // See tests/fixtures/README.md for the graphs these describe.
 function fixture(name: string): HeapSnapshot {
@@ -156,7 +155,7 @@ test.describe('buildRetainerPath', () => {
   test("collapses the injected clock, so a leak is not blamed on Playwright's plumbing", () => {
     const tile = nodeNamed(clock, '<div class="tile">');
     expect(buildRetainerPath(clock, clock.retainerPath(tile)!)).toEqual([
-      { node: 'a pending timer', edge: { type: 'property', name: 'func' } },
+      { node: 'a pending timer', kind: 'timer', edge: { type: 'property', name: 'func' } },
       { node: 'closure tick', edge: { type: 'context', name: 'state' } },
       { node: '<div class="tile">' },
     ]);

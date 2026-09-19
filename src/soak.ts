@@ -7,7 +7,7 @@ import {
   virtualElapsedMs,
 } from './clock.js';
 import { buildFailureMessage } from './diagnose.js';
-import { HeapDiagnostics } from './heap-diagnosis.js';
+import { HeapDiagnostics } from './heap-capture.js';
 import { formatCount, formatElapsed, formatSigned, percentGrowth, trendOf } from './stats.js';
 import type {
   ResolvedSoakOptions,

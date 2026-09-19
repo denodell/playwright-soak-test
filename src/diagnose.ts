@@ -7,7 +7,6 @@ import {
   percentGrowth,
   sparkline,
 } from './stats.js';
-import { PENDING_TIMER } from './types.js';
 import type {
   SoakDetachedClass,
   SoakResult,
@@ -240,7 +239,7 @@ function readChain(path: SoakRetainerHop[]): Culprit {
   }
 
   const listenerAt = path.findIndex((hop) => hop.node === 'EventListener');
-  if (path.some((hop) => hop.node === PENDING_TIMER)) out.anchor = 'timer';
+  if (path.some((hop) => hop.kind === 'timer')) out.anchor = 'timer';
   else if (listenerAt >= 0) {
     out.anchor = 'listener';
     // The hop above the listener is what it is registered on, which is not always window.

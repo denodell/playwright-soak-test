@@ -113,13 +113,6 @@ export interface SoakFailure {
 }
 
 /**
- * The node name `collapseClock` leaves behind in place of the injected clock's
- * own objects. Written by the diff and read by the report, so both sides take it
- * from here.
- */
-export const PENDING_TIMER = 'a pending timer';
-
-/**
  * One link in a retainer chain, with the name of the slot holding the next one.
  * Structured rather than pre-formatted, because the reporter reads the result
  * back out of a JSON attachment and regroups and relabels it from there.
@@ -129,6 +122,12 @@ export interface SoakRetainerHop {
   node: string;
   /** How this link reaches the next one. Absent on the last link and on unnamed edges. */
   edge?: { type: 'property' | 'element' | 'context'; name: string };
+  /**
+   * Set where several hops were folded into one and `node` is a phrase rather
+   * than something from the heap. The report reads this instead of matching on
+   * the wording.
+   */
+  kind?: 'timer';
 }
 
 /** One class of detached DOM node, and what is keeping an example of it alive. */
