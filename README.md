@@ -107,7 +107,7 @@ Defaults go in `use: { soakOptions }` in the config, or at the top of a spec wit
 | `clock` | `{ advanceMs: 18_000 }` | Virtual milliseconds per pass. `false` turns the clock off. |
 | `waitForResponse` | unset | A URL glob awaited around each clock advance. |
 | `waitForResponseTimeout` | `5000` | How long to wait before counting a response as missing and carrying on. |
-| `gcPasses` | `2` | Collections forced before each reading. |
+| `gcPasses` | `2` | Collections forced before each reading. A reading counts nodes the collector has yet to free, so a framework that leaves a lot behind on unmount can read a whole component high on the odd pass. Raise this if a flat run shows single passes jumping and dropping back. |
 | `progressEveryMs` | `30000` | How often a long run says where it has got to. `0` for silence. |
 | `tracePasses` | `25` | Passes read one at a time at the start of the run. |
 | `sampleEvery` | derived | Read every Nth pass after that. |

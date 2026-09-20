@@ -5,7 +5,12 @@ import { SoakLeakError } from '../../src/soak.js';
 
 const PASSES = 25;
 
-test.use({ soakOptions: { clock: false, passes: PASSES, diagnose: 'on-failure' } });
+// `gcPasses` is up from the default 2. Unmounting a React tree leaves more for
+// the collector than the other examples do, and a reading taken before it has
+// finished counts the panel as still there, which reads as a jump of one panel.
+test.use({
+  soakOptions: { clock: false, passes: PASSES, diagnose: 'on-failure', gcPasses: 4 },
+});
 
 function openAndCloseInspector(page: Page): Promise<void> {
   return page.evaluate(async () => {
@@ -67,5 +72,7 @@ test('the fixed build removes itself from the registry and stays flat', async ({
   const result = await soak.measure(() => openAndCloseInspector(page));
 
   expect(result.leaking).toBe(false);
-  expect(result.trends.nodes.total).toBeLessThanOrEqual(0);
+  // Exactly flat, rather than at or below zero: a reading that caught a panel
+  // mid-collection moves this by 203 either way, and the old bound hid half of that.
+  expect(result.trends.nodes.total).toBe(0);
 });
