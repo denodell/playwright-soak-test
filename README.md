@@ -107,11 +107,14 @@ Defaults go in `use: { soakOptions }` in the config, or at the top of a spec wit
 | `clock` | `{ advanceMs: 18_000 }` | Virtual milliseconds per pass. `false` turns the clock off. |
 | `waitForResponse` | unset | A URL glob awaited around each clock advance. |
 | `waitForResponseTimeout` | `5000` | How long to wait before counting a response as missing and carrying on. |
-| `gcPasses` | `2` | Collections forced before each reading. |
+| `gcPasses` | `2` | Collections forced before each reading. A reading counts nodes the collector has yet to free, so a framework that leaves a lot behind on unmount can read a whole component high on the odd pass. Raise this if a flat run shows single passes jumping and dropping back. |
 | `progressEveryMs` | `30000` | How often a long run says where it has got to. `0` for silence. |
 | `tracePasses` | `25` | Passes read one at a time at the start of the run. |
 | `sampleEvery` | derived | Read every Nth pass after that. |
 | `label` | test title | Name used in the report and the reporter. |
+| `diagnose` | `'on-failure'` | Heap snapshots either side of the run, diffed to name what leaked. `'always'` does it on a clean run too, `'off'` skips it. The baseline snapshot is taken on every run, since nothing knows the outcome that early, which on a real app is a few seconds. See [Diagnosis](#diagnosis). |
+| `keepSnapshots` | `false` | Attach both snapshots to the test result, for opening in DevTools. Off by default, since a real app's pair runs to hundreds of megabytes per failing test. The diagnosis is worked out either way. |
+| `diagnoseTimeoutMs` | `60000` | How long the snapshot work has before the diagnosis is dropped. Going over leaves a note on the result and never fails the run. |
 
 ## Virtual clock
 
@@ -178,6 +181,78 @@ The graphs are the readings taken across the run, scaled to each row's own range
 Growth that stopped is reported as `OVER THRESHOLD` rather than `LEAK DETECTED`. A single jump is labeled `all at once, at pass 10`, a climb that levels off early is labeled `climbed early, then levelled off`, and the message also suggests the number to raise the threshold to.
 
 The reporter prints a box per test and a table at the end of the run. On GitHub Actions it also writes an error annotation and a job summary. Failing rows are red where growth continues and amber where it stopped, with the same distinction in the wording. `NO_COLOR` turns color off and `FORCE_COLOR` turns it on.
+
+## Diagnosis
+
+A count going up tells you something leaked. It doesn't tell you what, so a run can also take a heap snapshot at the baseline pass and another at the end, and work out what leaked from the difference.
+
+This happens on a failing run without being asked for. A failing run prints this under the box:
+
+```
+  A listener on window is still registered. Its callback `onResize` points at the
+  <section class="report-drawer"> element.
+
+    window → EventListener → onResize() → <section class="report-drawer">
+```
+
+`onResize` is where to look. The chain under the sentence says why: `window` keeps the listener, the listener calls `onResize`, and `onResize` points at a section that came off the page.
+
+The other two common causes look like this:
+
+```
+  An array called `history` keeps growing, and it still references the
+  <section class="feed-panel"> element.
+
+    window.__drawer → openDrawer() → Array → <section class="feed-panel">
+```
+
+```
+  A timer is still pending. Its callback `tick` points at the <section
+  class="live-tile"> element.
+
+    a pending timer → tick() → <section class="live-tile">
+```
+
+A leak that stays out of the DOM has no element to name, so you get the class names that grew instead:
+
+```
+  Nothing leaked from the DOM. The growth is in Array +850, AuditEntry +850.
+```
+
+### Bundled builds
+
+Vite, webpack and Rollup flatten your modules into one scope, and V8 attributes that scope to whichever function it happens to pick. So a chain can name a function from a different file than the one holding the reference:
+
+```
+  A map called `mounted` keeps growing, and it still references the <section
+  class="inspector"> element.
+
+    window.__drawer → openDrawer() → Map → <section class="inspector">
+```
+
+`mounted` is the name to search for, and it is in `inspector.jsx`. `openDrawer` shares the bundle's module scope with it, which is why it shows up. The sentence names the variable for this reason, and the chain is there for the shape rather than the file. An unbundled dev build gives the function you expect.
+
+A code-split chunk adds its own `Module` and `Generator` objects between the importing file and whatever the imported one holds. Those come out of the chain, so a lazy-loaded panel reads the same as one bundled in.
+
+The same findings are on `result.diagnosis`, under `detached`, `growth` and `snapshots`, plus a `note` if something cut the diagnosis short.
+
+### The snapshots
+
+The report is a summary: the top three leaks, one example of each class, and a chain capped at eight hops. When that isn't enough, `keepSnapshots` attaches both files to the test result, and DevTools → Memory opens either one for the full retainer tree:
+
+```ts
+test.use({ soakOptions: { keepSnapshots: true } });
+```
+
+```sh
+npx playwright show-report
+```
+
+They are deleted otherwise, once the diff has read them. A real app's pair runs to hundreds of megabytes, which is a lot to carry out of CI for every failing test, and the finding on `result.diagnosis` is the same either way.
+
+`'always'` goes further and reports on a clean run too, which shows what a flow allocates before anything is wrong. Either way the baseline snapshot is taken on every run, since nothing knows the outcome that early, and deleted again when the run passes. On a real app that is a few seconds a run, and `diagnose: 'off'` skips it.
+
+If the snapshot work runs past `diagnoseTimeoutMs` the diagnosis is dropped, and the run still passes or fails on its own counts.
 
 ## API
 
@@ -287,12 +362,41 @@ Every call returns a `SoakResult`, and `SoakLeakError` contains the same object 
   },
   exposeGc: true,
   responseTimeouts: 0,
+  diagnosis: {
+    detached: [
+      {
+        className: 'Detached <div>',
+        baseline: 39,
+        after: 2379,
+        delta: 2340,
+        retainerPath: [
+          { node: 'Window' },
+          { node: 'EventListener' },
+          { node: 'closure onResize', edge: { type: 'context', name: 'root' } },
+          { node: '<section class="report-drawer">' },
+        ],
+      },
+      ...
+    ],
+    growth: [
+      {
+        name: 'closure onResize',
+        delta: 195,
+      },
+    ],
+    snapshots: {
+      baseline: 'test-results/.../soak-the-dashboard-drawer-does-not-leak-baseline.heapsnapshot',
+      after: 'test-results/.../soak-the-dashboard-drawer-does-not-leak-after.heapsnapshot',
+    },
+  },
 }
 ```
 
 `perPass` is the slope of the fitted line and `total` is the last reading minus the baseline. `r2` is how well that line fits, and `shape` is derived from it: `flat`, `linear`, `step`, `settled` or `noisy`. A `step` trend also contains `stepAtPass`, the pass the jump landed on.
 
-The types are exported too: `Soak`, `SoakAction`, `SoakOptions`, `SoakRunOptions`, `SoakClockOptions`, `SoakResult`, `SoakSample`, `SoakTrend`, `SoakMetrics`, `SoakFailure`, `SoakFixtures` and `SoakTestOptions`.
+`diagnosis` is what the heap snapshots found. It is only there on a run that failed, or one that asked for it with `diagnose: 'always'`. See [Diagnosis](#diagnosis).
+
+The types are exported too: `Soak`, `SoakAction`, `SoakOptions`, `SoakRunOptions`, `SoakClockOptions`, `SoakResult`, `SoakSample`, `SoakTrend`, `SoakMetrics`, `SoakFailure`, `SoakDiagnosis`, `SoakDiagnoseMode`, `SoakDetachedClass`, `SoakRetainerHop`, `SoakGrowth`, `SoakFixtures` and `SoakTestOptions`.
 
 ## Long runs
 
@@ -314,7 +418,9 @@ A run prints its progress every `progressEveryMs`, which defaults to 30 seconds:
 - Readings vary between runs, so this belongs in a nightly job rather than on every pull request. With `workers: 1` and `retries: 0`, each run gets a browser to itself.
 - Clicking an element that your flow then removes adds two retained nodes a pass in Chromium. They only turn up on a subtree the app is already keeping, so a clean build still reads exactly 0.
 - A `::before` or `::after` with `content` puts a `PseudoElement` and its text into the node count, so a component can read two nodes higher than the elements you actually wrote.
-- The counts miss anything that stays out of the DOM. A poller that keeps every response in an array grows the heap by 300% with the counts dead flat, and the run passes. Use `heapThresholdPercent` to catch that case.
+- The counts miss anything that stays out of the DOM. A poller that keeps every response in an array grows the heap by 300% with the counts dead flat, and the run passes. Use `heapThresholdPercent` to catch that case; the [diagnosis](#diagnosis) then names what piled up.
+- Diagnosis reads each snapshot with a single `JSON.parse`, which uses around four times the file size in heap. Only one snapshot is held at a time: the baseline is reduced to the counts the diff needs and dropped before the second is read. What a snapshot can be is worked out from the heap the worker has left, so it moves with `--max-old-space-size`; past that a snapshot is left unparsed with a note rather than risk taking the whole run down. For scale, an 800,000-node snapshot is 43MB and parses in under a second. Nothing is read in that case, so the note says to set `keepSnapshots` if you want the files themselves.
+- A retainer chain is the shortest route back to a root, and V8's own root buckets are often closer than your code. The walk asks for a route through the page first and falls back to the unrestricted one, so a chain that reads as a bare element means nothing else reached it.
 
 ## Examples
 

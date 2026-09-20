@@ -1,6 +1,6 @@
 {
   "name": "playwright-soak-test",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Soak test your single page web-app (SPA) for memory leaks with Playwright.",
   "keywords": [
     "playwright",
@@ -85,6 +85,8 @@
   "devDependencies": {
     "@playwright/test": "1.56",
     "@types/node": "^22.10.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
     "vite": "^6.0.0"
