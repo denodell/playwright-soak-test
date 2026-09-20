@@ -6,28 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- `diagnosis` on `SoakResult`, naming what leaked and what still references it
-- Heap snapshots at the baseline pass and after the final reading, diffed by node name
+- A heap snapshot at the baseline pass and another after the final reading, compared by node name
+- `diagnosis` on `SoakResult`, holding what the two snapshots found
 - `detached`, every class of detached DOM node whose count went up, largest first
-- `retainerPath`, the chain of retainers from the root to the leaked object, as `{ node, edge }` hops
-- `growth`, the JS constructors and named closures that grew most
-- Detached classes that share a chain reported as one leak, not one finding per class
-- Retainer chains through the virtual clock reported as `a pending timer`, marked `kind: 'timer'` so the wording is free to change
-- `diagnose` option, `'on-failure'` by default: `'always'` reports on a clean run too, `'off'` skips the snapshots
-- `keepSnapshots` option, off by default, attaching both snapshots for DevTools rather than deleting them after the diff
-- `diagnoseTimeoutMs` option, default 60,000, after which the diagnosis is dropped with a note
-- Snapshots left unparsed with a note when the worker has not the heap to read one, rather than risk taking the run down
-- Both snapshots attached as `soak-heap-baseline` and `soak-heap-after`, when `keepSnapshots` is on
+- `retainerPath`, the chain from the root down to the leaked object, as `{ node, edge }` hops
+- `growth`, the JS constructors and named closures that grew the most
+- Detached classes that share a chain are grouped, so a container and the elements inside it are one finding
+- A chain through the virtual clock now reads `a pending timer`. That hop carries `kind: 'timer'`, so the wording can change without breaking anything that reads it
+- `diagnose`, set to `'on-failure'`. `'always'` reports on a clean run too, and `'off'` skips the snapshots
+- `keepSnapshots`, off by default. Turning it on attaches both snapshots for DevTools instead of deleting them once the diff has read them
+- `diagnoseTimeoutMs`, default `60000`. If the snapshot work runs over, the diagnosis is dropped and the result gets a note
+- A snapshot too big for the memory the worker has left is not parsed at all. The result gets a note instead, and the run carries on
+- Both snapshots attached as `soak-heap-baseline` and `soak-heap-after` when `keepSnapshots` is on
 - The diagnosis printed under the reporter's box, and in the `SoakLeakError` message
 - Types `SoakDiagnosis`, `SoakDiagnoseMode`, `SoakDetachedClass`, `SoakRetainerHop` and `SoakGrowth`
 
 ### Changed
 
 - The report stops guessing at a cause once the snapshots have named one
-- Retainer walks look for a route through the page before falling back to one through V8's root buckets
-- One snapshot held in memory at a time, with the baseline reduced to counts and ids before the second is read
-- Detached classes group into one leak by their whole shared chain, not by the name at one depth
-- A code-split chunk's `Module` and `Generator` objects collapse out of the chain, keeping the variable name behind them
+- A retainer walk tries a route through the page before it tries V8's root buckets
+- Only one snapshot is in memory at a time. The baseline is reduced to the counts and ids the diff needs, then dropped before the second one is read
+- Detached classes are grouped by the whole chain they share. They used to be grouped by the name at one depth, which split some leaks in two
+- The `Module` and `Generator` objects a code-split chunk adds come out of the chain, and the name they were carrying moves up to the hop above
 
 ### Fixed
 
