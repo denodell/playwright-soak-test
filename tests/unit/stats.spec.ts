@@ -55,6 +55,18 @@ test.describe('classifyShape', () => {
     expect(r2).toBeLessThan(0.9);
   });
 
+  test('finds the halfway point by pass, when the early passes are read more often', () => {
+    // The shape of Chrome's undo history filling up: 4 nodes a pass until pass 330,
+    // then nothing. Every pass is read up to 25, and every 25th after that.
+    const passes = [...Array.from({ length: 26 }, (_, i) => i)];
+    for (let pass = 50; pass <= 700; pass += 25) passes.push(pass);
+    const s = passes.map((pass) => ({
+      pass, nodes: Math.min(pass, 330) * 4, heap: 0, listeners: 0, documents: 1,
+    }));
+    const { slope, r2 } = linearFit(s.map((x) => ({ x: x.pass, y: x.nodes })));
+    expect(classifyShape(s, 'nodes', slope, r2, 1320).shape).toBe('settled');
+  });
+
   test('keeps steady growth linear rather than settled', () => {
     const curve = Array.from({ length: 12 }, (_, i) => i * 40);
     const s = samples(curve);

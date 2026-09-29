@@ -15,6 +15,8 @@ export default defineConfig(({ mode }) => {
     // Both builds are served from one origin, so a single server hosts the
     // leaking build, the control build and /api/feed together.
     base: leak ? '/leak/' : '/fixed/',
+    // JSX goes through esbuild, so the React example needs no extra plugin.
+    esbuild: { jsx: 'automatic' },
     define: {
       __LEAK__: JSON.stringify(leak),
     },

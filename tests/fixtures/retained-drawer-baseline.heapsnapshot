@@ -1,0 +1,86 @@
+{
+  "snapshot": {
+    "meta": {
+      "node_fields": [
+        "type",
+        "name",
+        "id",
+        "self_size",
+        "edge_count",
+        "detachedness"
+      ],
+      "node_types": [
+        [
+          "hidden",
+          "array",
+          "string",
+          "object",
+          "code",
+          "closure",
+          "regexp",
+          "number",
+          "native",
+          "synthetic",
+          "concatenated string",
+          "sliced string",
+          "symbol",
+          "bigint",
+          "object shape"
+        ],
+        "string",
+        "number",
+        "number",
+        "number",
+        "number"
+      ],
+      "edge_fields": [
+        "type",
+        "name_or_index",
+        "to_node"
+      ],
+      "edge_types": [
+        [
+          "context",
+          "element",
+          "property",
+          "internal",
+          "hidden",
+          "shortcut",
+          "weak"
+        ],
+        "string_or_number",
+        "node"
+      ]
+    },
+    "node_count": 2,
+    "edge_count": 1
+  },
+  "nodes": [
+    9,
+    1,
+    1,
+    0,
+    1,
+    0,
+    8,
+    2,
+    3,
+    100,
+    0,
+    0
+  ],
+  "edges": [
+    1,
+    1,
+    6
+  ],
+  "strings": [
+    "",
+    "(GC roots)",
+    "Window / https://example.test"
+  ],
+  "trace_function_infos": [],
+  "trace_tree": [],
+  "samples": [],
+  "locations": []
+}

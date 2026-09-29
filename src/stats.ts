@@ -72,9 +72,15 @@ export function classifyShape(
   // never stops. Measured against the back half of the run rather than a line,
   // since a curve like this fits a line poorly and would land in 'noisy'.
   if (total > 0 && samples.length >= 6) {
-    const middle = samples[Math.floor(samples.length / 2)]!;
-    const lateGrowth = samples[samples.length - 1]![key] - middle[key];
-    if (lateGrowth <= 0.2 * total) return { shape: 'settled' };
+    const last = samples[samples.length - 1]!;
+    // Halfway by pass rather than by reading. The first passes are each read, so the
+    // middle reading of a long run comes from near its start.
+    const halfway = last.pass / 2;
+    let middle = samples[0]!;
+    for (const sample of samples) {
+      if (Math.abs(sample.pass - halfway) < Math.abs(middle.pass - halfway)) middle = sample;
+    }
+    if (last[key] - middle[key] <= 0.2 * total) return { shape: 'settled' };
   }
 
   if (r2 >= 0.9 && slope !== 0) return { shape: 'linear' };

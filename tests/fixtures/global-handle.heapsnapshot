@@ -1,0 +1,128 @@
+{
+  "snapshot": {
+    "meta": {
+      "node_fields": [
+        "type",
+        "name",
+        "id",
+        "self_size",
+        "edge_count",
+        "detachedness"
+      ],
+      "node_types": [
+        [
+          "hidden",
+          "array",
+          "string",
+          "object",
+          "code",
+          "closure",
+          "regexp",
+          "number",
+          "native",
+          "synthetic",
+          "concatenated string",
+          "sliced string",
+          "symbol",
+          "bigint",
+          "object shape"
+        ],
+        "string",
+        "number",
+        "number",
+        "number",
+        "number"
+      ],
+      "edge_fields": [
+        "type",
+        "name_or_index",
+        "to_node"
+      ],
+      "edge_types": [
+        [
+          "context",
+          "element",
+          "property",
+          "internal",
+          "hidden",
+          "shortcut",
+          "weak"
+        ],
+        "string_or_number",
+        "node"
+      ]
+    },
+    "node_count": 6,
+    "edge_count": 6
+  },
+  "nodes": [
+    9,
+    1,
+    1,
+    0,
+    2,
+    0,
+    8,
+    2,
+    3,
+    0,
+    1,
+    0,
+    9,
+    3,
+    5,
+    0,
+    1,
+    0,
+    5,
+    4,
+    7,
+    0,
+    1,
+    0,
+    3,
+    5,
+    9,
+    0,
+    1,
+    0,
+    8,
+    6,
+    11,
+    96,
+    0,
+    2
+  ],
+  "edges": [
+    1,
+    1,
+    6,
+    1,
+    2,
+    12,
+    2,
+    7,
+    18,
+    1,
+    1,
+    30,
+    3,
+    8,
+    24,
+    0,
+    9,
+    30
+  ],
+  "strings": [
+    "",
+    "(GC roots)",
+    "Window / https://example.test",
+    "(Global handles)",
+    "openPanel",
+    "system / Context",
+    "<section class=\"panel\">",
+    "__panel",
+    "context",
+    "panel"
+  ]
+}

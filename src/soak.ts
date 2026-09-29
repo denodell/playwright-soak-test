@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Page, TestInfo } from '@playwright/test';
 import { attachCdp, hasExposeGc, readMetrics } from './cdp.js';
 import {
   advanceSoakClock,
@@ -7,10 +7,12 @@ import {
   virtualElapsedMs,
 } from './clock.js';
 import { buildFailureMessage } from './diagnose.js';
+import { HeapDiagnostics } from './heap-capture.js';
 import { formatCount, formatElapsed, formatSigned, percentGrowth, trendOf } from './stats.js';
 import type {
   ResolvedSoakOptions,
   SoakAction,
+  SoakDiagnosis,
   SoakFailure,
   SoakMetrics,
   SoakOptions,
@@ -45,7 +47,28 @@ const DEFAULTS = {
   waitForResponseTimeout: 5_000,
   progressEveryMs: 30_000,
   clockAdvanceMs: 18_000,
+  diagnose: 'on-failure',
+  diagnoseTimeout: 60_000,
+  keepSnapshots: false,
 } as const;
+
+// Left for the report, the attachments and teardown once the snapshot work stops.
+const TEST_RESERVE_MS = 5_000;
+
+const testStarts = new WeakMap<TestInfo, number>();
+
+/** Records when the test's timeout started counting, if nothing has yet. */
+export function markTestStart(testInfo: TestInfo): void {
+  if (!testStarts.has(testInfo)) testStarts.set(testInfo, Date.now());
+}
+
+function testTimeLeftMs(testInfo: TestInfo): () => number {
+  const startedAt = testStarts.get(testInfo) ?? Date.now();
+  // Read each time, since `test.setTimeout()` can change it partway through.
+  return () => (testInfo.timeout
+    ? startedAt + testInfo.timeout - TEST_RESERVE_MS - Date.now()
+    : Infinity);
+}
 
 const warned = new Set<string>();
 
@@ -93,6 +116,9 @@ export function resolveSoakOptions(
         : { advanceMs: options.clock?.advanceMs ?? DEFAULTS.clockAdvanceMs },
     waitForResponse: options.waitForResponse,
     label: options.label ?? fallbackLabel,
+    diagnose: options.diagnose ?? DEFAULTS.diagnose,
+    diagnoseTimeout: options.diagnoseTimeout ?? DEFAULTS.diagnoseTimeout,
+    keepSnapshots: options.keepSnapshots ?? DEFAULTS.keepSnapshots,
   };
 }
 
@@ -103,6 +129,8 @@ async function executeSoak(
   throwOnLeak: boolean,
 ): Promise<SoakResult> {
   const opts = resolveSoakOptions(options, testInfo?.title);
+  // The fixture has usually done this already. Without it, the first run's start is the best guess.
+  if (testInfo) markTestStart(testInfo);
   const clockInstalled = isSoakClockInstalled(page);
 
   if (opts.clock && !clockInstalled) {
@@ -176,96 +204,128 @@ async function executeSoak(
   }
 
   const baseline = await read();
-  baselineMetrics = baseline;
-  latestMetrics = baseline;
-  const samples: SoakSample[] = [{ pass: 0, ...baseline }];
-  const measured = opts.passes - opts.warmup;
+  // Taken on every run with diagnosis on, since the outcome isn't known yet.
+  const heap =
+    opts.diagnose === 'off'
+      ? null
+      : new HeapDiagnostics(cdp, {
+        label: opts.label,
+        timeoutMs: opts.diagnoseTimeout,
+        keepSnapshots: opts.keepSnapshots,
+        testInfo,
+        ...(testInfo ? { testTimeLeftMs: testTimeLeftMs(testInfo) } : {}),
+      });
+  await heap?.captureBaseline();
 
-  for (let pass = 1; pass <= measured; pass++) {
-    await onePass();
-    done++;
-    const traced = pass <= opts.tracePasses;
-    const sampled = pass % opts.sampleEvery === 0;
-    if (pass !== measured && (traced || sampled)) {
-      const sample = await read();
-      latestMetrics = sample;
-      samples.push({ pass, ...sample });
+  // A flow that throws would otherwise leave the baseline snapshot on disk.
+  try {
+
+    baselineMetrics = baseline;
+    latestMetrics = baseline;
+    const samples: SoakSample[] = [{ pass: 0, ...baseline }];
+    const measured = opts.passes - opts.warmup;
+
+    for (let pass = 1; pass <= measured; pass++) {
+      await onePass();
+      done++;
+      const traced = pass <= opts.tracePasses;
+      const sampled = pass % opts.sampleEvery === 0;
+      if (pass !== measured && (traced || sampled)) {
+        const sample = await read();
+        latestMetrics = sample;
+        samples.push({ pass, ...sample });
+      }
+      reportProgress();
     }
-    reportProgress();
-  }
 
-  const after = await read();
-  samples.push({ pass: measured, ...after });
+    const after = await read();
+    samples.push({ pass: measured, ...after });
 
-  const trends = {
-    nodes: trendOf(samples, 'nodes', baseline.nodes, after.nodes),
-    listeners: trendOf(samples, 'listeners', baseline.listeners, after.listeners),
-    heap: trendOf(samples, 'heap', baseline.heap, after.heap),
-  };
+    const trends = {
+      nodes: trendOf(samples, 'nodes', baseline.nodes, after.nodes),
+      listeners: trendOf(samples, 'listeners', baseline.listeners, after.listeners),
+      heap: trendOf(samples, 'heap', baseline.heap, after.heap),
+    };
 
-  const failures: SoakFailure[] = [];
-  if (trends.listeners.total > opts.listenerThreshold) {
-    failures.push({
-      metric: 'listeners',
-      growth: trends.listeners.total,
-      threshold: opts.listenerThreshold,
-      trend: trends.listeners,
-    });
-  }
-  if (trends.nodes.total > opts.nodeThreshold) {
-    failures.push({
-      metric: 'nodes',
-      growth: trends.nodes.total,
-      threshold: opts.nodeThreshold,
-      trend: trends.nodes,
-    });
-  }
-  if (opts.heapThresholdPercent !== null) {
-    const pct = percentGrowth(baseline.heap, after.heap);
-    if (pct > opts.heapThresholdPercent) {
+    const failures: SoakFailure[] = [];
+    if (trends.listeners.total > opts.listenerThreshold) {
       failures.push({
-        metric: 'heap',
-        growth: pct,
-        threshold: opts.heapThresholdPercent,
-        trend: trends.heap,
+        metric: 'listeners',
+        growth: trends.listeners.total,
+        threshold: opts.listenerThreshold,
+        trend: trends.listeners,
       });
     }
+    if (trends.nodes.total > opts.nodeThreshold) {
+      failures.push({
+        metric: 'nodes',
+        growth: trends.nodes.total,
+        threshold: opts.nodeThreshold,
+        trend: trends.nodes,
+      });
+    }
+    if (opts.heapThresholdPercent !== null) {
+      const pct = percentGrowth(baseline.heap, after.heap);
+      if (pct > opts.heapThresholdPercent) {
+        failures.push({
+          metric: 'heap',
+          growth: pct,
+          threshold: opts.heapThresholdPercent,
+          trend: trends.heap,
+        });
+      }
+    }
+
+    let diagnosis: SoakDiagnosis | undefined;
+    if (heap) {
+      // A snapshot forces a collection, so it has to come after the last reading.
+      const wanted = opts.diagnose === 'always' || failures.length > 0;
+      if (wanted) {
+        await heap.captureAfter();
+        diagnosis = await heap.build();
+      } else {
+        await heap.discard();
+      }
+    }
+
+    const result: SoakResult = {
+      label: opts.label,
+      passes: opts.passes,
+      warmup: opts.warmup,
+      baseline,
+      after,
+      samples,
+      trends,
+      failures,
+      leaking: failures.length > 0,
+      thresholds: {
+        nodes: opts.nodeThreshold,
+        listeners: opts.listenerThreshold,
+        heap: opts.heapThresholdPercent,
+      },
+      clock: {
+        enabled: Boolean(opts.clock),
+        advanceMs: opts.clock ? opts.clock.advanceMs : 0,
+        virtualElapsedMs: clockInstalled ? await virtualElapsedMs(page) : null,
+      },
+      exposeGc,
+      responseTimeouts,
+      ...(diagnosis ? { diagnosis } : {}),
+    };
+
+    if (testInfo) {
+      await testInfo.attach('soak-metrics', {
+        body: JSON.stringify(result),
+        contentType: 'application/json',
+      });
+    }
+
+    if (result.leaking && throwOnLeak) throw new SoakLeakError(buildFailureMessage(result), result);
+
+    return result;
+  } finally {
+    await heap?.discard();
   }
-
-  const result: SoakResult = {
-    label: opts.label,
-    passes: opts.passes,
-    warmup: opts.warmup,
-    baseline,
-    after,
-    samples,
-    trends,
-    failures,
-    leaking: failures.length > 0,
-    thresholds: {
-      nodes: opts.nodeThreshold,
-      listeners: opts.listenerThreshold,
-      heap: opts.heapThresholdPercent,
-    },
-    clock: {
-      enabled: Boolean(opts.clock),
-      advanceMs: opts.clock ? opts.clock.advanceMs : 0,
-      virtualElapsedMs: clockInstalled ? await virtualElapsedMs(page) : null,
-    },
-    exposeGc,
-    responseTimeouts,
-  };
-
-  if (testInfo) {
-    await testInfo.attach('soak-metrics', {
-      body: JSON.stringify(result),
-      contentType: 'application/json',
-    });
-  }
-
-  if (result.leaking && throwOnLeak) throw new SoakLeakError(buildFailureMessage(result), result);
-
-  return result;
 }
 
 export function runSoak(
