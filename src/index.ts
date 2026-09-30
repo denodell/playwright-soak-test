@@ -5,14 +5,21 @@ export { runSoak, measureSoak, SoakLeakError, soakLaunchOptions } from './soak.j
 
 export { installSoakClock } from './clock.js';
 
+export { formatSoakReport } from './diagnose.js';
+
 export type {
   Soak,
   SoakAction,
   SoakClockOptions,
+  SoakDetachedClass,
+  SoakDiagnoseMode,
+  SoakDiagnosis,
   SoakFailure,
+  SoakGrowth,
   SoakMetrics,
   SoakOptions,
   SoakResult,
+  SoakRetainerHop,
   SoakRunOptions,
   SoakSample,
   SoakTrend,

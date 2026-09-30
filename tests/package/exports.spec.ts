@@ -57,6 +57,7 @@ test('the package entry loads as ESM and as CJS', async () => {
   const expected = [
     'SoakLeakError',
     'expect',
+    'formatSoakReport',
     'installSoakClock',
     'measureSoak',
     'runSoak',
