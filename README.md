@@ -466,6 +466,8 @@ npm install
 npm test
 ```
 
+`npm run test:coverage` runs the same tests and measures how much of `src/` they reach. It fails if any of lines, statements, functions or branches drops under 99%, and writes a browsable report to `coverage/index.html`.
+
 ## Changelog
 
 Every release is written up in [CHANGELOG.md](CHANGELOG.md).

@@ -165,10 +165,6 @@ export function formatBytes(bytes: number): string {
   return `${Math.round(bytes)} B`;
 }
 
-export function formatSignedBytes(bytes: number): string {
-  return `${bytes >= 0 ? '+' : '-'}${formatBytes(Math.abs(bytes))}`;
-}
-
 export function percentGrowth(baseline: number, after: number): number {
   if (!baseline) return 0;
   return ((after - baseline) / baseline) * 100;

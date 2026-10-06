@@ -5,3 +5,4 @@ examples/dist/
 test-results/
 playwright-report/
 *.tsbuildinfo
+coverage/

@@ -189,9 +189,10 @@ function groupLeaks(detached: SoakDetachedClass[]): Leak[] {
   const leaks: Leak[] = [];
 
   // Another leak's contents share its whole chain. Matching one depth would merge unrelated leaks.
+  // The candidate is the longer chain, so it has a hop at every index of the other.
   const inside = (candidate: SoakRetainerHop[], other: SoakRetainerHop[]): boolean =>
     candidate.length > other.length
-    && other.every((hop, i) => hop.node === candidate[i]?.node && hop.kind === candidate[i]?.kind);
+    && other.every((hop, i) => hop.node === candidate[i]!.node && hop.kind === candidate[i]!.kind);
 
   const roots = walked.filter(
     (candidate) =>
@@ -200,7 +201,8 @@ function groupLeaks(detached: SoakDetachedClass[]): Leak[] {
 
   const byHolder = new Map<string, Leak>();
   for (const root of [...roots].sort((a, b) => b.delta - a.delta)) {
-    const what = root.retainerPath.at(-1)?.node ?? root.className;
+    // `walked` only has chains with at least one hop.
+    const what = root.retainerPath.at(-1)!.node;
     const key = holderKey(root.retainerPath);
     const sibling = key === null ? undefined : byHolder.get(key);
     if (sibling) {
@@ -255,8 +257,9 @@ function readChain(path: SoakRetainerHop[]): Culprit {
     if (before && !before.kind && Object.hasOwn(COLLECTIONS, before.node)) out.heldIn = before.node;
   }
 
-  const root = path[0];
-  if (root?.node === 'Window' && root.edge?.type === 'property') {
+  // A leak's chain always has a hop, the leaked object itself.
+  const root = path[0]!;
+  if (root.node === 'Window' && root.edge?.type === 'property') {
     out.global = `window.${root.edge.name}`;
     // An array hung straight off the window, with no closure in between.
     const next = path[1]?.node;
