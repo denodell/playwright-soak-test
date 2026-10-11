@@ -487,7 +487,6 @@ export function buildReport(result: SoakResult, heading: string): string {
 
   if (result.leaking) {
     const lookFurther: string[] = [];
-    // Once the snapshots name the cause, there's nothing left to go and find.
     if (!hasNamedCause(result)) {
       lookFurther.push(
         '  Find it: DevTools → Memory → take a heap snapshot, then filter the class list for',

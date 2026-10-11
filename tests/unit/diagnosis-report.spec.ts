@@ -251,7 +251,6 @@ test.describe('formatSoakReport', () => {
     const report = formatSoakReport(result);
     expect(report).toContain('Memory leak detected in "a run".');
     expect(report).toContain('An array at `window.cache` keeps growing');
-    // The snapshots already found it, so there's no need to say how to go looking.
     expect(report).not.toContain('Find it:');
   });
 

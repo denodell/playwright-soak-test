@@ -52,7 +52,6 @@ test('the leak build fails with 40 nodes and a listener a pass', async ({ page, 
 
   expect(message).toContain('Memory leak detected');
   expect(message).toContain('Listeners');
-  // The snapshots name the cause, so the DevTools steps for finding it are left out.
   expect(message).toContain('A listener on window is still registered.');
   expect(message).not.toContain('Find it:');
 });
