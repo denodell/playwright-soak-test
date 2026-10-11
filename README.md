@@ -111,9 +111,6 @@ Memory leak detected in "the dashboard drawer does not leak".
 
     window → EventListener → onResize() → <section class="report-drawer">
 
-  Find it: DevTools → Memory → take a heap snapshot, then filter the class list for
-  "Detached". Clicking a node shows its retainers, so you can see what still references it.
-
   200 passes x 18s of virtual time = 1h of app time.
 ```
 
