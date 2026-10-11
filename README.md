@@ -7,7 +7,7 @@ Find memory leaks in your single-page web app in minutes rather than hours.
 
 It repeats a user flow a few hundred times in Playwright and counts the DOM nodes and event listeners on the page as it goes. The flow has to end where it started, like opening a drawer and closing it again, or filtering a table and clearing the filter, so those counts should be the same after every pass. If they keep going up, something is leaking, and the test fails.
 
-Most leaks only cause trouble after hours of use. This finds them in minutes. Between passes, a virtual clock skips ahead, so your app's timers and polling still run, but the test doesn't wait for them. With `page.route` answering your app's requests from fixture data, the test doesn't wait on a server either. The default 200 passes cover an hour of your app's time.
+Most leaks only cause trouble after hours of use. This finds them in minutes. Between passes, a virtual clock skips ahead, so your app's timers and polling still run, but the test doesn't wait for them. With `page.route` responding to your app's requests with fixture data, the test doesn't wait on a server either. The default 200 passes cover an hour of your app's time.
 
 When it finds a leak, it tells you what's keeping the leaked elements in memory, like a listener on `window` that was never removed.
 
@@ -127,7 +127,7 @@ The reporter also prints a summary table at the end of the run. On GitHub Action
 
 ## Clock and network
 
-By default the clock moves 18 seconds between passes. Set `advanceMs` to match how often your app polls. For a feed that calls `/api/feed` every 30 seconds, move the clock 30 seconds a pass, and answer the request from fixture data so the test never waits on the network:
+By default the clock moves 18 seconds between passes. Set `advanceMs` to match how often your app polls. For a feed that calls `/api/feed` every 30 seconds, move the clock 30 seconds a pass, and respond to the request with fixture data so the test never waits on the network:
 
 ```ts
 test.use({ soakOptions: { clock: { advanceMs: 30_000 } } });
