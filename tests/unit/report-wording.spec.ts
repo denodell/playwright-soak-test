@@ -90,7 +90,7 @@ test.describe('interpret', () => {
 
   test('nodes and listeners climbing together point at the listeners, until the snapshots know better', () => {
     const guessing = text(interpret(result({ nodes: linear(200, 8), listeners: linear(25, 1) })));
-    expect(guessing).toContain('Every pass leaks 8.0 nodes and 1.0 listeners.');
+    expect(guessing).toContain('Each pass leaks 8 nodes and 1 listener.');
     expect(guessing).toContain('The listeners are probably what is keeping those nodes in memory.');
 
     const named = text(
@@ -101,8 +101,17 @@ test.describe('interpret', () => {
         ),
       ),
     );
-    expect(named).toContain('Every pass leaks');
+    expect(named).toContain('Each pass leaks');
     expect(named).not.toContain('probably');
+  });
+
+  test('a leak that isn\'t a whole number a pass is given as an average', () => {
+    expect(text(interpret(result({ nodes: linear(200, 39.8), listeners: linear(25, 0.5) })))).toContain(
+      'Each pass leaks 39.8 nodes and 0.5 listeners on average.',
+    );
+    expect(text(interpret(result({ nodes: linear(2000, 1200), listeners: linear(50, 2) })))).toContain(
+      'Each pass leaks 1,200 nodes and 2 listeners.',
+    );
   });
 
   test('a listener on its own is one added every pass and never removed', () => {

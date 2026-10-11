@@ -84,6 +84,12 @@ export function describeMetrics(result: SoakResult): string[] {
 }
 
 // The counts say a leak exists. This says which kind.
+function leakedPerPass(perPass: number, one: string, many: string): { text: string; whole: boolean } {
+  const shown = Number(formatPerPass(perPass).slice(1));
+  const whole = Number.isInteger(shown);
+  return { text: `${whole ? formatCount(shown) : shown} ${shown === 1 ? one : many}`, whole };
+}
+
 export function interpret(result: SoakResult): string[] {
   const { trends } = result;
   const guessing = !hasNamedCause(result);
@@ -108,11 +114,11 @@ export function interpret(result: SoakResult): string[] {
   const nodesLeak = nodes.total > 0 && nodes.shape === 'linear';
 
   if (listenersLeak && nodesLeak) {
+    const leakedNodes = leakedPerPass(nodes.perPass, 'node', 'nodes');
+    const leakedListeners = leakedPerPass(listeners.perPass, 'listener', 'listeners');
+    const average = leakedNodes.whole && leakedListeners.whole ? '' : ' on average';
     lines.push(
-      ...sentence(
-        `Every pass leaks ${formatPerPass(nodes.perPass).replace('+', '')} nodes and`
-        + ` ${formatPerPass(listeners.perPass).replace('+', '')} listeners.`,
-      ),
+      ...sentence(`Each pass leaks ${leakedNodes.text} and ${leakedListeners.text}${average}.`),
     );
     if (guessing) {
       lines.push(

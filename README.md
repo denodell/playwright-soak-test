@@ -102,7 +102,7 @@ Memory leak detected in "the dashboard drawer does not leak".
 
   Heap       +10.88%  (reported only)  ▁▁▂▂▂▂▃▃▃▃▃▃▃▅▄▄▅▅▆▆▇▇██  1.09 MB → 1.21 MB
 
-  Every pass leaks 40.0 nodes and 1.0 listeners.
+  Each pass leaks 40 nodes and 1 listener.
   This all assumes your flow ends where it started. If it adds to the page on purpose, it
   will grow no matter what.
 
