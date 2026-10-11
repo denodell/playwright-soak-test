@@ -486,14 +486,17 @@ export function buildReport(result: SoakResult, heading: string): string {
   if (diagnosis.length) blocks.push([''], diagnosis.map((l) => (l ? `  ${l}` : '')));
 
   if (result.leaking) {
-    const findIt = [
-      '  Find it: DevTools → Memory → take a heap snapshot, then filter the class list for',
-      '  "Detached". Clicking a node shows its retainers, so you can see what still references it.',
-    ];
-    if (result.diagnosis?.snapshots) {
-      findIt.push("  Both snapshots from this run are attached, so they can be dragged straight in.");
+    const lookFurther: string[] = [];
+    if (!hasNamedCause(result)) {
+      lookFurther.push(
+        '  Find it: DevTools → Memory → take a heap snapshot, then filter the class list for',
+        '  "Detached". Clicking a node shows its retainers, so you can see what still references it.',
+      );
     }
-    blocks.push([''], findIt);
+    if (result.diagnosis?.snapshots) {
+      lookFurther.push('  Both snapshots from this run are attached, so you can open them in DevTools → Memory.');
+    }
+    if (lookFurther.length) blocks.push([''], lookFurther);
   }
 
   const trailing = notes(result);

@@ -251,6 +251,24 @@ test.describe('formatSoakReport', () => {
     const report = formatSoakReport(result);
     expect(report).toContain('Memory leak detected in "a run".');
     expect(report).toContain('An array at `window.cache` keeps growing');
+    expect(report).not.toContain('Find it:');
+  });
+
+  test('a leak with no cause named still says how to find it in DevTools', () => {
+    const result = resultWith({ detached: [], objects: [] }, climbing);
+    result.failures = [{ metric: 'listeners', growth: 20, threshold: 0, trend: climbing }];
+    expect(formatSoakReport(result)).toContain('Find it: DevTools → Memory');
+  });
+
+  test('a leak named by kept snapshots says where they are, without the steps to find it', () => {
+    const result = resultWith(
+      { detached: [walked], objects: [], snapshots: { baseline: 'a', after: 'b' } },
+      climbing,
+    );
+    result.failures = [{ metric: 'listeners', growth: 20, threshold: 0, trend: climbing }];
+    const report = formatSoakReport(result);
+    expect(report).not.toContain('Find it:');
+    expect(report).toContain('Both snapshots from this run are attached, so you can open them in DevTools → Memory.');
   });
 
   test('a pass says so, and still shows a diagnosis when there is one', () => {

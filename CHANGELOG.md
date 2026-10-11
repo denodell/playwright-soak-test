@@ -32,7 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- When the snapshots find the cause of a leak, the report no longer adds its own guess at one
+- When the snapshots find the cause of a leak, the report no longer adds its own guess at one, or the steps for finding it in DevTools
 - A trend that climbed and then stopped now reads `climbed early, then leveled off`, in US spelling
 - The README is shorter, and the detail on the diagnosis and the API moved to [docs/diagnosis.md](docs/diagnosis.md) and [docs/api.md](docs/api.md)
 
