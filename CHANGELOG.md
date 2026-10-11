@@ -40,7 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A long run that climbed and then stopped partway could be called noisy instead of `climbed early, then leveled off`. The halfway point was found by counting readings, and the first 25 passes are each read, so on a long run it landed near the start. It's now found by pass
 - A reading taken the moment a flow ended could count elements the flow had just removed, so an app could read a whole component high on the odd pass. Each reading now has Chrome update the page's layout first, which lets those elements go
-- Chromium is installed on `postinstall`, so the tests run in a fresh clone without installing the browser manually ([#1](https://github.com/denodell/playwright-soak-test/pull/1), thanks [@brentguf](https://github.com/brentguf))
+- Running `npm install` in a fresh clone of the repo installs Chromium too, so the tests run without installing the browser manually. Installing the package from npm doesn't do this ([#1](https://github.com/denodell/playwright-soak-test/pull/1), thanks [@brentguf](https://github.com/brentguf))
 
 A test suite upgrading from 0.1.0 gets the diagnosis on failing runs without any changes. Every run takes a heap snapshot at the baseline pass, because nobody knows yet whether the run will fail, and a failing run takes a second one. Both are deleted afterwards unless `keepSnapshots` is on. `diagnose: 'off'` goes back to the 0.1.0 behavior. Readings can come out slightly lower than in 0.1.0, where a pass used to count elements a flow had just removed.
 

@@ -80,7 +80,7 @@
     "test": "npm run build && npm run build:examples && playwright test",
     "test:coverage": "npm run build && npm run build:examples && c8 playwright test",
     "test:unit": "playwright test --project=unit",
-    "postinstall": "playwright install --with-deps chromium",
+    "prepare": "playwright install chromium",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
