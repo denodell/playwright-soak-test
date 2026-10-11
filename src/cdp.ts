@@ -27,10 +27,24 @@ export async function detachCdp(page: Page): Promise<void> {
   } catch { }
 }
 
+// Chrome keeps some references to removed elements until it next updates the
+// page's layout, so a reading taken the moment a flow ends can count a component
+// that's already gone. Asking for the page's size makes it update straight away.
+// It uses no timers, so the virtual clock doesn't get in the way.
+async function updateLayout(cdp: CDPSession): Promise<void> {
+  try {
+    await cdp.send('Runtime.evaluate', {
+      expression: 'void document.documentElement?.getBoundingClientRect()',
+    });
+  } catch { }
+}
+
 export async function readMetrics(
   cdp: CDPSession,
   options: { gcPasses: number },
 ): Promise<SoakMetrics> {
+  await updateLayout(cdp);
+
   // I found React apps need this garbage collection to happen twice
   for (let i = 0; i < options.gcPasses; i++) {
     await cdp.send('HeapProfiler.collectGarbage');

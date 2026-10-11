@@ -1,6 +1,6 @@
 {
   "name": "playwright-soak-test",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Soak test your single page web-app (SPA) for memory leaks with Playwright.",
   "keywords": [
     "playwright",
@@ -78,13 +78,17 @@
     "build:examples:fixed": "vite build --config examples/vite.config.ts --mode fixed",
     "examples:serve": "node examples/server.mjs",
     "test": "npm run build && npm run build:examples && playwright test",
+    "test:coverage": "npm run build && npm run build:examples && c8 playwright test",
     "test:unit": "playwright test --project=unit",
-    "postinstall": "playwright install --with-deps chromium",
+    "prepare": "playwright install chromium",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
     "@playwright/test": "1.56",
     "@types/node": "^22.10.0",
+    "c8": "^10.1.3",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
     "vite": "^6.0.0"

@@ -36,6 +36,14 @@ export interface SoakClockOptions {
   advanceMs?: number;
 }
 
+/**
+ * When a run takes heap snapshots. Default `'on-failure'`. The baseline one has to
+ * be taken before the outcome is known, so every run takes it and a run that ends
+ * up passing throws it away again. On a real app that is a few seconds a run, and
+ * `'off'` skips it.
+ */
+export type SoakDiagnoseMode = 'on-failure' | 'always' | 'off';
+
 export interface SoakOptions {
   /** Total passes, including the warmup. Default 200. */
   passes?: number;
@@ -72,6 +80,25 @@ export interface SoakOptions {
   waitForResponseTimeout?: number;
   /** Name used in the failure message and the reporter. Defaults to the test title. */
   label?: string;
+  /**
+   * Heap snapshots either side of the run, diffed to name what leaked and what
+   * still references it. Default `'on-failure'`.
+   */
+  diagnose?: SoakDiagnoseMode;
+  /**
+   * Attach both snapshots to the test result, for opening in DevTools → Memory.
+   * Default `false`, since a real app's pair runs to hundreds of megabytes per
+   * failing test. The diagnosis is worked out either way; this only decides
+   * whether the files outlive it. Needs a test to attach them to, so a
+   * `runSoak` or `measureSoak` call without `testInfo` deletes them anyway.
+   */
+  keepSnapshots?: boolean;
+  /**
+   * Budget for the snapshot work, in ms. Default 60,000. The work also stops 5
+   * seconds before the test's own timeout. Going over abandons the diagnosis
+   * with a note on the result rather than failing the test.
+   */
+  diagnoseTimeout?: number;
 }
 
 export type ResolvedSoakOptions = Required<Omit<SoakOptions, 'clock' | 'waitForResponse' | 'label'>> & {
@@ -85,6 +112,69 @@ export interface SoakFailure {
   growth: number;
   threshold: number;
   trend: SoakTrend;
+}
+
+/**
+ * One link in a retainer chain, with the name of the slot holding the next one.
+ * Structured rather than pre-formatted, because the reporter reads the result
+ * back out of a JSON attachment and regroups and relabels it from there.
+ */
+export interface SoakRetainerHop {
+  /**
+   * The retainer itself, such as `Window`, `EventListener`, `Array` or
+   * `<section class="drawer">`. For a function, just its name, like `onResize`.
+   */
+  node: string;
+  /**
+   * How this link reaches the next one. Absent on the last link and on unnamed
+   * edges. `name` is a path, like `store.items` or `rows[0]`, when a plain object
+   * in between was left out of the chain.
+   */
+  edge?: { type: 'property' | 'element' | 'context'; name: string };
+  /**
+   * `'closure'` when `node` is a function. `'browser'` when it's one of Chrome's
+   * own objects, like `StyleEngine`. `'timer'` when several hops were folded into
+   * one and `node` is a phrase rather than something from the heap.
+   */
+  kind?: 'closure' | 'browser' | 'timer';
+}
+
+/** One class of detached DOM node, and what is keeping an example of it alive. */
+export interface SoakDetachedClass {
+  /**
+   * `Detached ` and the tag, such as `Detached <div>`. Older versions of Chrome
+   * give `Detached HTMLDivElement`.
+   */
+  className: string;
+  baseline: number;
+  after: number;
+  delta: number;
+  /**
+   * Retainers of one example, root first and the leaked object last, with the
+   * internal hops collapsed. Empty when no path was walked, or none reached the
+   * root.
+   */
+  retainerPath: SoakRetainerHop[];
+}
+
+/** A JS constructor or function whose object count went up across the run. */
+export interface SoakGrowth {
+  /** The constructor's name, such as `AuditEntry`, or the function's, such as `onResize`. */
+  name: string;
+  /** `'closure'` when `name` is a function. */
+  kind?: 'closure';
+  delta: number;
+}
+
+export interface SoakDiagnosis {
+  /** Every detached class that grew, largest first. */
+  detached: SoakDetachedClass[];
+  /** The JS objects that grew most, by name, for leaks that never touch the DOM. */
+  objects: SoakGrowth[];
+  /** Where the two snapshots were written, when they were kept. */
+  snapshots?: { baseline: string; after: string };
+  /** What cut the diagnosis short, when something did. */
+  note?: string;
 }
 
 export interface SoakResult {
@@ -103,6 +193,8 @@ export interface SoakResult {
   exposeGc: boolean;
   /** Responses that timed out, when `waitForResponse` is set. */
   responseTimeouts: number;
+  /** What the heap snapshots found. Absent when diagnosis was off or not wanted. */
+  diagnosis?: SoakDiagnosis;
 }
 
 export type SoakAction = () => Promise<void> | void;

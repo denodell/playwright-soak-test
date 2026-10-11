@@ -30,3 +30,9 @@ jobs:
       - run: npx playwright install --with-deps chromium
 
       - run: npm test
+        if: matrix.node != 22
+
+      # The same run, failing if coverage drops under the floor in .c8rc.json.
+      # Once is enough, and Node versions can count branches differently.
+      - run: npm run test:coverage
+        if: matrix.node == 22

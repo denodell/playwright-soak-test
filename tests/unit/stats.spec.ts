@@ -1,5 +1,15 @@
 import { expect, test } from '@playwright/test';
-import { classifyShape, linearFit, percentGrowth, sparkline, trendOf } from '../../src/stats.js';
+import {
+  classifyShape,
+  formatElapsed,
+  formatPercent,
+  formatPerPass,
+  formatSigned,
+  linearFit,
+  percentGrowth,
+  sparkline,
+  trendOf,
+} from '../../src/stats.js';
 import { mergeSoakOptions, resolveSoakOptions } from '../../src/soak.js';
 import { describeMetrics } from '../../src/diagnose.js';
 import type { SoakResult, SoakSample } from '../../src/types.js';
@@ -53,6 +63,18 @@ test.describe('classifyShape', () => {
     const { slope, r2 } = linearFit(s.map((x) => ({ x: x.pass, y: x.nodes })));
     expect(classifyShape(s, 'nodes', slope, r2, curve[11]! - curve[0]!).shape).toBe('settled');
     expect(r2).toBeLessThan(0.9);
+  });
+
+  test('finds the halfway point by pass, when the early passes are read more often', () => {
+    // The shape of Chrome's undo history filling up: 4 nodes a pass until pass 330,
+    // then nothing. Every pass is read up to 25, and every 25th after that.
+    const passes = [...Array.from({ length: 26 }, (_, i) => i)];
+    for (let pass = 50; pass <= 700; pass += 25) passes.push(pass);
+    const s = passes.map((pass) => ({
+      pass, nodes: Math.min(pass, 330) * 4, heap: 0, listeners: 0, documents: 1,
+    }));
+    const { slope, r2 } = linearFit(s.map((x) => ({ x: x.pass, y: x.nodes })));
+    expect(classifyShape(s, 'nodes', slope, r2, 1320).shape).toBe('settled');
   });
 
   test('keeps steady growth linear rather than settled', () => {
@@ -195,5 +217,73 @@ test.describe('resolveSoakOptions', () => {
 
   test('refuses a run with nothing left to measure', () => {
     expect(() => resolveSoakOptions({ passes: 6, warmup: 5 })).toThrow(/at least 2 after the warmup/);
+  });
+
+  test('takes every option a run sets over the default', () => {
+    const waitForResponse = '**/api/**';
+    expect(
+      resolveSoakOptions({
+        passes: 40,
+        warmup: 2,
+        nodeThreshold: 10,
+        listenerThreshold: 1,
+        heapThresholdPercent: 5,
+        gcPasses: 3,
+        progressEveryMs: 0,
+        tracePasses: 4,
+        sampleEvery: 3,
+        waitForResponse,
+        waitForResponseTimeout: 250,
+        clock: { advanceMs: 1_000 },
+        label: 'named',
+        diagnose: 'always',
+        diagnoseTimeout: 5_000,
+        keepSnapshots: true,
+      }),
+    ).toEqual({
+      passes: 40,
+      warmup: 2,
+      nodeThreshold: 10,
+      listenerThreshold: 1,
+      heapThresholdPercent: 5,
+      gcPasses: 3,
+      progressEveryMs: 0,
+      tracePasses: 4,
+      sampleEvery: 3,
+      waitForResponse,
+      waitForResponseTimeout: 250,
+      clock: { advanceMs: 1_000 },
+      label: 'named',
+      diagnose: 'always',
+      diagnoseTimeout: 5_000,
+      keepSnapshots: true,
+    });
+  });
+
+  test('keeps the clock at its default advance when only part of it is set', () => {
+    expect(resolveSoakOptions({ clock: {} }).clock).toEqual({ advanceMs: 18_000 });
+  });
+});
+
+test.describe('formatting', () => {
+  test('a run reads in seconds, then minutes, then hours', () => {
+    expect(formatElapsed(42_000)).toBe('42s');
+    expect(formatElapsed(5 * 60_000)).toBe('5m');
+    expect(formatElapsed(125 * 60_000)).toBe('2h 5m');
+  });
+
+  test('a count that went down keeps its minus sign', () => {
+    expect(formatSigned(-1234)).toBe('-1,234');
+    expect(formatPercent(-2.5)).toBe('-2.50%');
+  });
+
+  test('growth per pass keeps fewer decimals the bigger it is', () => {
+    expect(formatPerPass(150)).toBe('+150');
+    expect(formatPerPass(-3.25)).toBe('-3.3');
+    expect(formatPerPass(0.125)).toBe('+0.13');
+  });
+
+  test('readings all taken at one pass fit as flat rather than dividing by zero', () => {
+    expect(linearFit([{ x: 3, y: 1 }, { x: 3, y: 9 }])).toEqual({ slope: 0, r2: 1 });
   });
 });
