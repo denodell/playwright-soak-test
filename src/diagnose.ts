@@ -118,7 +118,7 @@ export function interpret(result: SoakResult): string[] {
     const leakedListeners = leakedPerPass(listeners.perPass, 'listener', 'listeners');
     const average = leakedNodes.whole && leakedListeners.whole ? '' : ' on average';
     lines.push(
-      ...sentence(`Every pass leaks ${leakedNodes.text} and ${leakedListeners.text}${average}.`),
+      ...sentence(`Each pass leaks ${leakedNodes.text} and ${leakedListeners.text}${average}.`),
     );
     if (guessing) {
       lines.push(
