@@ -82,7 +82,7 @@ If the snapshot work takes longer than `diagnoseTimeout`, the diagnosis is dropp
 
 Each snapshot is read with `JSON.parse`, which needs about four times the file size in memory. Only one snapshot is in memory at a time. The baseline is cut down to the counts the comparison needs before the second one is read. For scale, an 800,000-node snapshot is 43MB and takes under a second to read.
 
-The largest snapshot it will read depends on how much memory the test worker has left. Raising `--max-old-space-size` raises the limit, up to about 512MB, which is the longest string Node can read a file into. Past that, the snapshots aren't read at all, rather than risk crashing the test run, and the note suggests turning on `keepSnapshots` so you can open the files yourself.
+The largest snapshot it will read depends on how much memory the test worker has left. Raising `--max-old-space-size` raises the limit, up to about 512MB, which is the longest string Node can read a file into. Past that, the snapshots aren't read at all, rather than risk crashing the test run. The note says which limit it hit, and if `keepSnapshots` is off, it suggests turning it on so you can open the files in DevTools yourself.
 
 ## Chromium quirks
 
