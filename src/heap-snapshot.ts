@@ -156,12 +156,9 @@ export class HeapSnapshot {
     this.edgeCount = this.edges.length / this.edgeFieldCount;
 
     this.firstEdge = new Uint32Array(this.nodeCount + 1);
-    let running = 0;
     for (let i = 0; i < this.nodeCount; i++) {
-      this.firstEdge[i] = running;
-      running += this.nodes[i * this.nodeFieldCount + this.nodeEdgeCountAt]!;
+      this.firstEdge[i + 1] = this.firstEdge[i]! + this.nodes[i * this.nodeFieldCount + this.nodeEdgeCountAt]!;
     }
-    this.firstEdge[this.nodeCount] = running;
   }
 
   nodeType(node: number): HeapNodeType {
@@ -234,20 +231,14 @@ export class HeapSnapshot {
   private buildRetainers(): void {
     if (this.retainerFirst) return;
 
-    const counts = new Uint32Array(this.nodeCount + 1);
-    for (let e = 0; e < this.edgeCount; e++) counts[this.edgeTarget(e)]!++;
-
+    // How many edges point at each node, then a running total of those counts.
     const first = new Uint32Array(this.nodeCount + 1);
-    let running = 0;
-    for (let n = 0; n < this.nodeCount; n++) {
-      first[n] = running;
-      running += counts[n]!;
-    }
-    first[this.nodeCount] = running;
+    for (let e = 0; e < this.edgeCount; e++) first[this.edgeTarget(e) + 1]!++;
+    for (let n = 0; n < this.nodeCount; n++) first[n + 1]! += first[n]!;
 
     const cursor = first.slice();
-    const retainerNode = new Uint32Array(running);
-    const retainerEdge = new Uint32Array(running);
+    const retainerNode = new Uint32Array(this.edgeCount);
+    const retainerEdge = new Uint32Array(this.edgeCount);
     for (let n = 0; n < this.nodeCount; n++) {
       const [from, to] = this.edgeRange(n);
       for (let e = from; e < to; e++) {
@@ -270,12 +261,12 @@ export class HeapSnapshot {
     if (node < 0 || node >= this.nodeCount) return null;
     this.buildRetainers();
 
+    // A node with a parent has been seen. The leaked node is its own parent.
     const parent = new Int32Array(this.nodeCount).fill(-1);
-    const viaEdge = new Int32Array(this.nodeCount).fill(-1);
-    const seen = new Uint8Array(this.nodeCount);
+    const viaEdge = new Int32Array(this.nodeCount);
 
     const queue = [node];
-    seen[node] = 1;
+    parent[node] = node;
     let head = 0;
     let found = node === ROOT_NODE;
 
@@ -284,12 +275,11 @@ export class HeapSnapshot {
       const first = this.retainerFirst!;
       for (let i = first[current]!; i < first[current + 1]!; i++) {
         const holder = this.retainerNode![i]!;
-        if (seen[holder]) continue;
+        if (parent[holder] !== -1) continue;
         const edge = this.retainerEdge![i]!;
         if (this.edgeTypeOf(edge) === 'weak') continue;
         if (holder !== ROOT_NODE && skipRetainer?.(holder)) continue;
 
-        seen[holder] = 1;
         parent[holder] = current;
         viaEdge[holder] = edge;
 
@@ -308,7 +298,7 @@ export class HeapSnapshot {
       const edge = viaEdge[current]!;
       steps.push({
         node: current,
-        edge: edge < 0 ? null : { type: this.edgeTypeOf(edge), name: this.edgeName(edge) },
+        edge: current === node ? null : { type: this.edgeTypeOf(edge), name: this.edgeName(edge) },
       });
       if (current === node) break;
     }
@@ -344,7 +334,7 @@ export function detachedClassOf(snapshot: HeapSnapshot, node: number): string | 
       : `${DETACHED_PREFIX}${elementClass(name)}`;
   }
 
-  if (snapshot.nodeType(node) !== 'native') return null;
-  if (!name.startsWith(DETACHED_PREFIX)) return null;
-  return withoutEntryCount(name);
+  return snapshot.nodeType(node) === 'native' && name.startsWith(DETACHED_PREFIX)
+    ? withoutEntryCount(name)
+    : null;
 }

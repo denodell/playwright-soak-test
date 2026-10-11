@@ -277,15 +277,10 @@ async function executeSoak(
     }
 
     let diagnosis: SoakDiagnosis | undefined;
-    if (heap) {
-      // A snapshot forces a collection, so it has to come after the last reading.
-      const wanted = opts.diagnose === 'always' || failures.length > 0;
-      if (wanted) {
-        await heap.captureAfter();
-        diagnosis = await heap.build();
-      } else {
-        await heap.discard();
-      }
+    // A snapshot forces a collection, so it has to come after the last reading.
+    if (heap && (opts.diagnose === 'always' || failures.length > 0)) {
+      await heap.captureAfter();
+      diagnosis = await heap.build();
     }
 
     const result: SoakResult = {

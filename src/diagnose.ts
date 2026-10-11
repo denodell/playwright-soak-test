@@ -7,6 +7,7 @@ import {
   percentGrowth,
   sparkline,
 } from './stats.js';
+import { DETACHED_PREFIX } from './heap-snapshot.js';
 import type {
   SoakDetachedClass,
   SoakResult,
@@ -90,27 +91,17 @@ export function interpret(result: SoakResult): string[] {
   const listeners = trends.listeners;
   const lines: string[] = [];
 
-  const stepped = [listeners, nodes].find((t) => t.shape === 'step' && t.total > 0);
-  if (stepped) {
-    const which = stepped === nodes ? 'DOM nodes' : 'Listeners';
-    lines.push(
-      ...sentence(`${which} jumped once at pass ${stepped.stepAtPass} and have stayed there.`),
-      ...sentence(`Raise the threshold above ${formatCount(Math.abs(stepped.total))} if that's expected.`),
-    );
-    return lines;
-  }
-
-  const leveled = [listeners, nodes].find((t) => t.shape === 'settled' && t.total > 0);
-  if (leveled) {
-    const which = leveled === nodes ? 'DOM nodes' : 'Listeners';
-    lines.push(
-      ...sentence(
-        `${which} climbed early on and have been flat since. A leak would still be climbing, so`
-        + ' this looks more like a cache filling up.',
-      ),
-      ...sentence(`Raise the threshold above ${formatCount(Math.abs(leveled.total))} if that's expected.`),
-    );
-    return lines;
+  const stopped = [listeners, nodes].find((t) => t.shape === 'step' && t.total > 0)
+    ?? [listeners, nodes].find((t) => t.shape === 'settled' && t.total > 0);
+  if (stopped) {
+    const which = stopped === nodes ? 'DOM nodes' : 'Listeners';
+    return [
+      ...sentence(stopped.shape === 'step'
+        ? `${which} jumped once at pass ${stopped.stepAtPass} and have stayed there.`
+        : `${which} climbed early on and have been flat since. A leak would still be climbing, so`
+          + ' this looks more like a cache filling up.'),
+      ...sentence(`Raise the threshold above ${formatCount(stopped.total)} if that's expected.`),
+    ];
   }
 
   const listenersLeak = listeners.total > 0 && listeners.shape === 'linear';
@@ -240,10 +231,7 @@ function readChain(path: SoakRetainerHop[]): Culprit {
   const out: Culprit = { anchor: 'other' };
 
   // The function nearest the leaked object. Nearer the root it's usually a framework's.
-  let closureAt = -1;
-  for (let i = path.length - 1; i >= 0 && closureAt < 0; i--) {
-    if (path[i]!.kind === 'closure') closureAt = i;
-  }
+  const closureAt = path.map((hop) => hop.kind).lastIndexOf('closure');
   if (closureAt >= 0) {
     const closure = path[closureAt]!;
     out.fn = closure.node;
@@ -391,9 +379,7 @@ function describeLeak(leak: Leak, result: SoakResult): string[] {
     // Usually a subscription that was never undone, so that's the thing to look for.
     cause = `\`${fn}\` is still in ${COLLECTIONS[heldIn]}, and it still references ${what}.`;
   } else if (fn) {
-    cause = anchored
-      ? `Its callback \`${fn}\` still references ${what}.`
-      : `\`${fn}\` still references ${what}.`;
+    cause = `${anchored ? 'Its callback ' : ''}\`${fn}\` still references ${what}.`;
   } else if (global) {
     cause = `Something on \`${global}\` still references ${what}.`;
   } else {
@@ -430,7 +416,7 @@ export function describeDiagnosis(result: SoakResult): string[] {
     // Detached classes grew but no chain reached a root, so only the counts are left.
     const classes = diagnosis.detached
       .slice(0, SHOWN)
-      .map((d) => `${d.className.replace('Detached ', '')} ${formatSigned(d.delta)}`)
+      .map((d) => `${d.className.replace(DETACHED_PREFIX, '')} ${formatSigned(d.delta)}`)
       .join(', ');
     lines.push(
       ...sentence(

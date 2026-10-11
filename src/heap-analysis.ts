@@ -95,11 +95,6 @@ function isDetachedGrouping(snapshot: HeapSnapshot, node: number): boolean {
   return name.startsWith('Detached DOM tree') || name.startsWith('(Detached');
 }
 
-/** V8's root buckets, like `(Global handles)`, usually closer than any route through the page. */
-function isSyntheticRoot(snapshot: HeapSnapshot, node: number): boolean {
-  return snapshot.nodeType(node) === 'synthetic';
-}
-
 // Kept, in this order, when an element's markup is trimmed. The rest, like `style`, is noise.
 const KEPT_ATTRIBUTES = ['id', 'role', 'data-testid', 'aria-label', 'name'];
 
@@ -150,12 +145,7 @@ export function buildRetainerPath(
   snapshot: HeapSnapshot,
   steps: RetainerStep[],
 ): SoakRetainerHop[] {
-  const kept: Array<{
-    name: string;
-    closure: boolean;
-    browser: boolean;
-    edge: SoakRetainerHop['edge'];
-  }> = [];
+  const kept: SoakRetainerHop[] = [];
   let carried: RetainerStep['edge'] = null;
   let previous = '';
 
@@ -168,7 +158,7 @@ export function buildRetainerPath(
 
     const name = describeNode(snapshot, step.node);
     const closure = snapshot.nodeType(step.node) === 'closure';
-    const browser = isChromeObject(snapshot, step.node, name);
+    const kind = closure ? 'closure' : isChromeObject(snapshot, step.node, name) ? 'browser' : null;
     // A DOM wrapper and the JS object behind it share a name, so the chain would
     // otherwise read `Window, Window`.
     const key = `${closure}:${name}`;
@@ -178,18 +168,12 @@ export function buildRetainerPath(
     }
 
     const edge = namedEdge(snapshot, step.node, carried ?? step.edge);
-    kept.push({ name, closure, browser, edge });
+    kept.push({ node: name, ...(kind ? { kind } : {}), ...(edge ? { edge } : {}) });
     previous = key;
     carried = null;
   }
 
-  const hops: SoakRetainerHop[] = kept.reverse().map(({ name, closure, browser, edge }) => ({
-    node: name,
-    ...(closure ? { kind: 'closure' as const } : {}),
-    ...(browser ? { kind: 'browser' as const } : {}),
-    ...(edge ? { edge } : {}),
-  }));
-
+  const hops = kept.reverse();
   // The clock is found by its property name, so it's folded before `Object` hops add to that name.
   return dropAnonymous(collapseClock(dropModuleWrapper(hops)));
 }
@@ -255,9 +239,9 @@ function collapseClock(hops: SoakRetainerHop[]): SoakRetainerHop[] {
   while (end + 1 < hops.length && !isAppCode(hops[end + 1]!)) end++;
 
   const last = hops[end]!;
-  const timer: SoakRetainerHop = last.edge
-    ? { node: PENDING_TIMER, kind: 'timer', edge: last.edge }
-    : { node: PENDING_TIMER, kind: 'timer' };
+  const timer: SoakRetainerHop = {
+    node: PENDING_TIMER, kind: 'timer', ...(last.edge ? { edge: last.edge } : {}),
+  };
   return [...hops.slice(0, start), timer, ...hops.slice(end + 1)];
 }
 
@@ -311,7 +295,8 @@ export function pathForClass(
 
   // Each attempt bans a shortcut that wins on hop count. The last allows anything.
   const attempts: Array<((holder: number) => boolean) | null> = [
-    (holder) => isDetachedGrouping(after, holder) || isSyntheticRoot(after, holder),
+    // V8's root buckets, like `(Global handles)`, usually closer than any route through the page.
+    (holder) => isDetachedGrouping(after, holder) || after.nodeType(holder) === 'synthetic',
     (holder) => isDetachedGrouping(after, holder),
     null,
   ];
@@ -374,9 +359,9 @@ export function diffDigest(
   }
   objects.sort((a, b) => b.delta - a.delta);
 
-  const diagnosis: SoakDiagnosis = { detached, objects: objects.slice(0, GROWTH_NAMES) };
-  if (ranOut) {
-    diagnosis.note = `Diagnosis ran past ${limit}, so not every chain was walked.`;
-  }
-  return diagnosis;
+  return {
+    detached,
+    objects: objects.slice(0, GROWTH_NAMES),
+    ...(ranOut ? { note: `Diagnosis ran past ${limit}, so not every chain was walked.` } : {}),
+  };
 }

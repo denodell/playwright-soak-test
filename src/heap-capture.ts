@@ -18,8 +18,7 @@ const HEAP_SHARE = 0.5;
 // Node can't read a longer file into one string, however much heap is left.
 const MAX_TEXT_BYTES = bufferConstants.MAX_STRING_LENGTH;
 
-const BASELINE_FILE = 'baseline';
-const AFTER_FILE = 'after';
+const SNAPSHOTS = ['baseline', 'after'] as const;
 
 /** Time a stage may take, and the name of the limit that set it. */
 interface Budget {
@@ -82,7 +81,7 @@ async function freeStem(dir: string, label: string): Promise<string> {
   for (let n = 1; ; n++) {
     const stem = n === 1 ? base : `${base}-${n}`;
     const inUse = await Promise.all(
-      [BASELINE_FILE, AFTER_FILE].map((which) =>
+      SNAPSHOTS.map((which) =>
         fsp.access(snapshotFile(dir, stem, which)).then(() => true, () => false),
       ),
     );
@@ -124,10 +123,6 @@ interface OversizeContext {
   budgetBytes?: number;
   maxTextBytes?: number;
   keepSnapshots?: boolean;
-}
-
-function reason(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export interface HeapDiagnosticsOptions {
@@ -174,10 +169,7 @@ export class HeapDiagnostics {
       this.tempDir = dir;
     }
     const stem = await freeStem(dir, label);
-    return {
-      baseline: snapshotFile(dir, stem, BASELINE_FILE),
-      after: snapshotFile(dir, stem, AFTER_FILE),
-    };
+    return { baseline: snapshotFile(dir, stem, 'baseline'), after: snapshotFile(dir, stem, 'after') };
   }
 
   private budget(): Budget {
@@ -200,7 +192,7 @@ export class HeapDiagnostics {
     try {
       return await work(budget);
     } catch (error) {
-      this.note = `Diagnosis stopped: ${reason(error)}`;
+      this.note = `Diagnosis stopped: ${error instanceof Error ? error.message : String(error)}`;
       return null;
     } finally {
       this.spentMs += Date.now() - startedAt;
@@ -228,7 +220,7 @@ export class HeapDiagnostics {
   async build(): Promise<SoakDiagnosis> {
     const diff = await this.stage(async (budget) => {
       const { files } = this;
-      if (!files || !this.captured.baseline || !this.captured.after) {
+      if (!files || !this.captured.after) {
         throw new Error('both snapshots are needed for a diff');
       }
 
@@ -239,10 +231,7 @@ export class HeapDiagnostics {
         if (outOfTime()) throw new Error(`${step} ran past ${budget.limit}`);
       };
 
-      const sizes = await Promise.all([
-        fsp.stat(files.baseline),
-        fsp.stat(files.after),
-      ]);
+      const sizes = await Promise.all(SNAPSHOTS.map((which) => fsp.stat(files[which])));
       const oversize = oversizeReason(sizes.map((stat) => stat.size), {
         keepSnapshots: this.options.keepSnapshots,
       });
@@ -277,17 +266,12 @@ export class HeapDiagnostics {
   private async attach(): Promise<{ baseline: string; after: string } | null> {
     const { testInfo } = this.options;
     const { files } = this;
-    if (!testInfo || !files || !this.captured.baseline || !this.captured.after) return null;
+    if (!testInfo || !files || !this.captured.after) return null;
     try {
-      await testInfo.attach('soak-heap-baseline', {
-        path: files.baseline,
-        contentType: 'application/json',
-      });
-      await testInfo.attach('soak-heap-after', {
-        path: files.after,
-        contentType: 'application/json',
-      });
-      return { baseline: files.baseline, after: files.after };
+      for (const which of SNAPSHOTS) {
+        await testInfo.attach(`soak-heap-${which}`, { path: files[which], contentType: 'application/json' });
+      }
+      return { ...files };
     } catch {
       return null;
     }
@@ -296,12 +280,8 @@ export class HeapDiagnostics {
   /** Safe to call more than once. */
   async discard(): Promise<void> {
     if (this.kept) return;
-    if (this.files) {
-      await Promise.all([
-        fsp.rm(this.files.baseline, { force: true }),
-        fsp.rm(this.files.after, { force: true }),
-      ]).catch(() => { });
-    }
+    const files = this.files ? SNAPSHOTS.map((which) => this.files![which]) : [];
+    await Promise.all(files.map((file) => fsp.rm(file, { force: true }))).catch(() => { });
     if (this.tempDir) await fsp.rm(this.tempDir, { recursive: true, force: true }).catch(() => { });
   }
 }
