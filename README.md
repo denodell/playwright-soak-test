@@ -3,7 +3,7 @@
 [![ci](https://github.com/denodell/playwright-soak-test/actions/workflows/ci.yml/badge.svg)](https://github.com/denodell/playwright-soak-test/actions/workflows/ci.yml)
 [![license](https://img.shields.io/github/license/denodell/playwright-soak-test)](https://github.com/denodell/playwright-soak-test/blob/main/LICENSE)
 
-Soak test your single-page web app (SPA) for memory leaks at high speed, using Playwright.
+Fast soak tests that find memory leaks in your single-page web app (SPA), using Playwright.
 
 A SPA keeps running for as long as its browser tab is open, so any memory it leaks keeps building up. The usual cause is DOM nodes that get removed from the page but stay in memory, because a listener or timer still has a reference to them. Over a long session they add up, the page gets slower, and eventually the tab can crash.
 
@@ -13,7 +13,7 @@ Between passes it advances a virtual clock, so the app's timers fire as if that 
 
 The flow has to end where it started, so the counts should be the same at the end as at the start. Opening a drawer and closing it again works, and so does filtering a table and then clearing the filter. A flow that's meant to add to the page, like an infinite scroll feed, will keep growing and fail even when nothing is leaking. If you're curious about its counts anyway, `soak.measure()` reports them without failing the test.
 
-> Based on my blog post [Your SPA Is Leaking Memory. Soak Test It](https://denodell.com/blog/your-spa-is-leaking-memory-soak-test-it?utm_source=github&utm_medium=playwright-soak-test&utm_campaign=readme), which goes into detail behind the method and the default values used here.
+> Based on my blog post [Your SPA Is Leaking Memory. Soak Test It](https://denodell.com/blog/your-spa-is-leaking-memory-soak-test-it?utm_source=github&utm_medium=playwright-soak-test&utm_campaign=readme), which explains the method and the default values used here in more detail.
 
 ## Installation
 
@@ -27,7 +27,7 @@ The counts come from the [Chrome DevTools Protocol](https://chromedevtools.githu
 
 ## Usage
 
-Import `test` from `playwright-soak-test` instead of `@playwright/test`. It's the same `test` with a `soak` fixture added. If you already have a spec that clicks through the flow you want to test, change the import and wrap the flow in `soak.run()`:
+`playwright-soak-test` exports its own `test`, which is Playwright's `test` with a `soak` fixture added. If you already have a spec that clicks through the flow you want to test, you change the import and wrap the flow in `soak.run()`:
 
 ```ts
 import { test } from 'playwright-soak-test';
@@ -42,7 +42,7 @@ test('the dashboard drawer does not leak memory', async ({ page, soak }) => {
 });
 ```
 
-The flow runs 200 times by default. It takes a baseline reading after 5 warmup passes, and if a count has grown past a given threshold by the end, `soak.run()` throws and the test fails.
+The flow runs 200 times by default. It takes a baseline reading after 5 warmup passes, and if a count has grown past its threshold by the end, `soak.run()` throws and the test fails.
 
 `soak.measure()` takes the same arguments but returns the result instead of throwing, for when you only want to see the DOM node and listener counts:
 
@@ -76,7 +76,7 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         launchOptions: soakLaunchOptions,
-        // Both the following keep big buffers in the renderer, which can affect results
+        // Tracing and video both keep big buffers in the renderer, which can throw off the readings
         trace: 'off',
         video: 'off',
       },
@@ -85,11 +85,11 @@ export default defineConfig({
 });
 ```
 
-Name your soak specs `*.soak.spec.ts`, and use `testIgnore` on your existing projects to keep them out. A 200-pass run isn't meant to go alongside your normal tests.
+A 200-pass run doesn't belong alongside your normal tests, so the soak specs get their own names, `*.soak.spec.ts`, and `testIgnore` keeps them out of your existing projects.
 
-`list` is Playwright's usual terminal output. Setting `reporter` replaces the defaults rather than adding to them, so dropping it leaves you with the soak boxes alone.
+`list` is Playwright's usual terminal output. Setting `reporter` replaces the defaults rather than adding to them, so without `list` you'd only see the soak boxes.
 
-Then run the soak project on its own:
+The soak project then runs on its own:
 
 ```sh
 npx playwright test --project=soak
@@ -104,17 +104,17 @@ Defaults go in `use: { soakOptions }` in the config, or at the top of a spec wit
 | Option | Default | What it does |
 | --- | --- | --- |
 | `passes` | `200` | Passes in total, warmup included. |
-| `warmup` | `5` | Passes before the baseline, so first-open code and data land in the heap first. |
-| `nodeThreshold` | `100` | How much the node count can grow across the run. Raise it for components that are meant to keep DOM nodes around. When the growth came all at once or stopped early, the failure message says what to raise it to. |
+| `warmup` | `5` | Passes before the baseline, so code and data loaded on first open are already in the heap. |
+| `nodeThreshold` | `100` | How much the node count can grow across the run. Components that are meant to keep DOM nodes around need it higher. When the growth came all at once or stopped early, the failure message says what to raise it to. |
 | `listenerThreshold` | `0` | How much the listener count can grow. Best left alone, because a listener still registered after a round trip is most likely a bug. |
-| `heapThresholdPercent` | `null` | Heap growth allowed, as a percentage. `null` reports heap and leaves it out of the assertions. Set it to catch a leak that stays out of the DOM entirely, as described under [Limitations](#limitations). |
+| `heapThresholdPercent` | `null` | Heap growth allowed, as a percentage. `null` reports heap and leaves it out of the assertions. Setting it catches a leak that stays out of the DOM entirely, as described under [Limitations](#limitations). |
 | `clock` | `{ advanceMs: 18_000 }` | Virtual milliseconds per pass. `false` turns the clock off. |
 | `waitForResponse` | unset | A URL glob awaited around each clock advance. |
-| `waitForResponseTimeout` | `5000` | How long to wait before counting a response as missing and carrying on. |
-| `gcPasses` | `2` | Garbage collections forced before each reading. Each reading also has Chrome update the page's layout first, since until it does, it keeps some references to elements that were just removed. |
-| `progressEveryMs` | `30000` | How often a long run says where it has got to. `0` for silence. |
-| `tracePasses` | `25` | Passes read one at a time at the start of the run. |
-| `sampleEvery` | derived | Read every Nth pass after that. |
+| `waitForResponseTimeout` | `5000` | How long to wait before counting a response as missing and moving on. |
+| `gcPasses` | `2` | Garbage collections forced before each reading. Chrome also updates the page's layout first, because until it does, it keeps some references to elements that were just removed. |
+| `progressEveryMs` | `30000` | How often a long run prints its progress. `0` turns it off. |
+| `tracePasses` | `25` | The number of passes at the start of the run that each get a reading. |
+| `sampleEvery` | derived | After those, a reading is taken every Nth pass. |
 | `label` | test title | Name used in the report and the reporter. |
 | `diagnose` | `'on-failure'` | Takes a heap snapshot at the baseline pass and another at the end, and compares them to name what leaked. `'always'` does this on passing runs too, and `'off'` skips it. The baseline snapshot is taken on every run, because nobody knows yet whether the run will fail, and on a real app it takes a few seconds. See [Diagnosis](#diagnosis). |
 | `keepSnapshots` | `false` | Attaches both snapshots to the test result so you can open them in DevTools. It's off by default because a real app's two snapshots add up to hundreds of megabytes for each failing test. The diagnosis is the same either way. |
@@ -122,9 +122,9 @@ Defaults go in `use: { soakOptions }` in the config, or at the top of a spec wit
 
 ## Virtual clock
 
-The fixture installs Playwright's virtual clock before your app loads and pauses it once the app is up. From then on time only moves when a pass moves it, and `advanceMs` sets how far, so match it to the interval your app uses.
+The fixture installs Playwright's virtual clock before your app loads and pauses it once the app is up. From then on time only moves when a pass moves it, and `advanceMs` sets how far, so the best value is the interval your app uses.
 
-For a `setTimeout()` that calls `/api/feed` every 30 seconds, advance the clock by 30 seconds a pass to skip the wait. Fulfill the request yourself with realistic-sized fixture data, so a pass isn't waiting on the network either:
+For a `setTimeout()` that calls `/api/feed` every 30 seconds, advancing the clock 30 seconds a pass skips the wait. With `page.route` answering the request with realistic-sized fixture data, a pass isn't waiting on the network either:
 
 ```ts
 test.use({
@@ -145,7 +145,7 @@ test('the dashboard drawer does not leak', async ({ page, soak }) => {
 });
 ```
 
-`waitForResponse` is registered before the flow runs and awaited after the clock advances, so a response triggered by the advance is still caught. A wait that times out after `waitForResponseTimeout` ms adds one to `responseTimeouts` on the result, and the pass carries on.
+`waitForResponse` is registered before the flow runs and awaited after the clock advances, so a response triggered by the advance is still caught. A wait that times out after `waitForResponseTimeout` ms adds one to `responseTimeouts` on the result, and the pass continues.
 
 `page.routeWebSocket()` does the same job for sockets, on Playwright 1.48+. Streamed responses can't be faked this way, because `route.fulfill()` only takes a string or a buffer.
 
@@ -286,11 +286,11 @@ If the snapshot files can't be written, the diagnosis is dropped the same way, w
 | `soak.run(flow, options?)` | Repeats the flow and throws `SoakLeakError` if a count grew past its threshold. |
 | `soak.measure(flow, options?)` | The same run, returning the `SoakResult` whether or not anything grew. |
 | `soakFixtures` | The fixture on its own, for a `test` you've already extended: `base.extend(myFixtures).extend(soakFixtures)`. |
-| `runSoak(page, flow, options?)` | `soak.run` without the fixture, for when `soak` is out of scope: Playwright driven as a library, or a run started from inside a page object. Pass `testInfo` in the options to get the numbers to the reporter. |
+| `runSoak(page, flow, options?)` | `soak.run` without the fixture, for when `soak` is out of scope: Playwright driven as a library, or a run started from inside a page object. With `testInfo` in the options, the numbers still go to the reporter. |
 | `measureSoak(page, flow, options?)` | `soak.measure` without the fixture. |
 | `installSoakClock(page)` | Installs the virtual clock, which has to happen before the app loads. The fixture does this for you, so it's only needed alongside `runSoak` and `measureSoak`. |
-| `soakLaunchOptions` | `launchOptions` carrying `--js-flags=--expose-gc`. |
-| `SoakLeakError` | Thrown by `soak.run` and `runSoak`. Its `result` property holds the full `SoakResult`. |
+| `soakLaunchOptions` | `launchOptions` with `--js-flags=--expose-gc` set. |
+| `SoakLeakError` | Thrown by `soak.run` and `runSoak`. Its `result` property contains the full `SoakResult`. |
 | `formatSoakReport(result)` | The report for a `SoakResult` as text. For a leak it's the same text as the `SoakLeakError` message, so a `soak.measure()` result can be logged the same way. |
 
 Every call returns a `SoakResult`, and `SoakLeakError` contains the same object on its `result` property. From the leaking drawer above:
@@ -418,7 +418,7 @@ Every call returns a `SoakResult`, and `SoakLeakError` contains the same object 
 }
 ```
 
-`perPass` is the slope of the fitted line and `total` is the last reading minus the baseline. `r2` is how well that line fits, and `shape` is derived from it: `flat`, `linear`, `step`, `settled` or `noisy`. A `step` trend also contains `stepAtPass`, the pass the jump landed on.
+`perPass` is the slope of the fitted line and `total` is the last reading minus the baseline. `r2` is how well that line fits, and `shape` says how the count grew: `flat`, `linear`, `step`, `settled` or `noisy`. A `step` trend also contains `stepAtPass`, the pass the jump landed on.
 
 `diagnosis` is what the heap snapshots found. It's only there on a run that failed, or on one that set `diagnose: 'always'`. `detached` is sorted largest first, so the `<div>` and `<span>` inside the drawer come before the `<section>` shown here. `diagnosis.snapshots` gives the paths to the two snapshot files when `keepSnapshots` is on. See [Diagnosis](#diagnosis).
 
@@ -426,7 +426,7 @@ The types are exported too: `Soak`, `SoakAction`, `SoakOptions`, `SoakRunOptions
 
 ## Long runs
 
-200 passes finishes in seconds. Longer runs need Playwright's own test timeout raised, since it defaults to 30 seconds:
+A 200-pass run finishes in seconds. Longer runs need Playwright's own test timeout raised, since it defaults to 30 seconds:
 
 ```ts
 test.setTimeout(2 * 60 * 60 * 1000);
@@ -450,9 +450,9 @@ A run prints its progress every `progressEveryMs`, which defaults to 30 seconds:
 - Readings vary between runs, so this belongs in a nightly job rather than on every pull request. With `workers: 1` and `retries: 0`, each run gets a browser to itself.
 - Clicking an element that your flow then removes adds two retained nodes a pass in Chromium. They only turn up on a subtree the app is already keeping, so a clean build still reads exactly 0.
 - A `::before` or `::after` with `content` puts a `PseudoElement` and its text into the node count, so a component can read two nodes higher than the elements you actually wrote.
-- Typing into an editable area, such as a `contenteditable` element or a rich text editor, adds to Chrome's undo history, which keeps the text a flow deletes so Ctrl+Z can bring it back. A flow that types reads a few nodes higher every pass until that history reaches 1,000 steps, then levels off. The diagnosis says when only Chrome's own objects are keeping the elements.
+- Typing into an editable area, such as a `contenteditable` element or a rich text editor, adds to Chrome's undo history, which keeps the text a flow deletes so Ctrl+Z can bring it back. A flow that types reads a few nodes higher every pass until that history is 1,000 steps long, then levels off. The diagnosis says when only Chrome's own objects are keeping the elements.
 - Logging an event or an element with `console.log` keeps it in memory while Playwright is connected, because Chrome builds a preview of anything logged. An app that logs an event every time an overlay closes reads a whole overlay higher every pass. Logging a string, like `event.type`, doesn't do this.
-- The counts miss anything that stays out of the DOM. A poller that keeps every response in an array grows the heap by 300% with the counts dead flat, and the run passes. Use `heapThresholdPercent` to catch that case, and the [diagnosis](#diagnosis) will name what's piling up.
+- The counts miss anything that stays out of the DOM. A poller that keeps every response in an array grows the heap by 300% while the counts stay the same, and the run passes. `heapThresholdPercent` catches that case, and the [diagnosis](#diagnosis) names what's piling up.
 - Diagnosis reads each snapshot with a single `JSON.parse`, which needs about four times the file size in memory. Only one snapshot is in memory at a time: the baseline is reduced to the counts the comparison needs, then dropped before the second one is read. For scale, an 800,000-node snapshot is 43MB and reads in under a second.
 - The largest snapshot the diagnosis will read depends on how much heap the test worker has left, so raising `--max-old-space-size` raises the limit too, up to about 512MB, the most Node can read into one string. Past the limit, the snapshots aren't read at all, rather than risk crashing the whole test run. Since nothing was read, the note on the result suggests turning on `keepSnapshots` so you can look at the files yourself.
 - The chain is the shortest path from the leaked object back to a root, and V8's own roots, such as `(Global handles)`, are often fewer steps away than your code. The walk looks for a path through the page first, and only falls back to any path if there isn't one. So a chain that shows the element on its own means nothing on the page is referencing it.
@@ -466,7 +466,7 @@ npm install
 npm test
 ```
 
-`npm run test:coverage` runs the same tests and measures how much of `src/` they reach. It fails if any of lines, statements, functions or branches drops under 99%, and writes a browsable report to `coverage/index.html`.
+`npm run test:coverage` runs the same tests and measures how much of the code in `src/` they run. It fails if any of lines, statements, functions or branches drops under 99%, and writes a browsable report to `coverage/index.html`.
 
 ## Changelog
 
